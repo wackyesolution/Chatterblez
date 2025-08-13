@@ -29,10 +29,53 @@ from ebooklib import epub
 from pick import pick
 import threading
 import queue  # Import queue for concurrent reading
+from pydub import AudioSegment
+from pydub.silence import split_on_silence
 
 from functools import lru_cache
 
 sample_rate = 24000
+
+def remove_silence_pydub(input_file, output_file, silence_thresh=-40, min_silence_len=500, keep_silence=100):
+    """
+    Remove silences from audio file using pydub
+
+    Args:
+        input_file: Path to input audio file
+        output_file: Path to output audio file
+        silence_thresh: Silence threshold in dBFS (lower = more sensitive)
+        min_silence_len: Minimum silence length in milliseconds to remove
+        keep_silence: Amount of silence to keep in ms
+    """
+    # Load audio file
+    audio = AudioSegment.from_file(input_file)
+
+    # Split audio on silence
+    chunks = split_on_silence(
+        audio,
+        min_silence_len=min_silence_len,  # Min silence length in ms
+        silence_thresh=silence_thresh,    # Silence threshold in dBFS
+        keep_silence=keep_silence                  # Keep 100ms of silence for natural flow
+    )
+
+    # Combine chunks
+    combined = AudioSegment.empty()
+    for chunk in chunks:
+        combined += chunk
+
+    # Export result
+    combined.export(output_file, format="wav")
+    print(f"Processed audio saved to: {output_file}")
+
+    # Print statistics
+    original_duration = len(audio) / 1000  # Convert to seconds
+    new_duration = len(combined) / 1000
+    removed_time = original_duration - new_duration
+
+    print(f"Original duration: {original_duration:.2f}s")
+    print(f"New duration: {new_duration:.2f}s")
+    print(f"Removed silence: {removed_time:.2f}s ({removed_time/original_duration*100:.1f}%)")
+
 
 import string
 
@@ -251,7 +294,8 @@ def clean_line(line: str) -> str:
     return line.strip()
 def main(file_path, pick_manually, speed, book_year='', output_folder='.',
          max_chapters=None, max_sentences=None, selected_chapters=None, post_event=None, audio_prompt_wav=None, batch_files=None, ignore_list=None, should_stop=None,
-         repetition_penalty=1.2, min_p=0.05, top_p=1.0, exaggeration=0.5, cfg_weight=0.5, temperature=0.8):
+         repetition_penalty=1.2, min_p=0.05, top_p=1.0, exaggeration=0.5, cfg_weight=0.5, temperature=0.8,
+         enable_silence_trimming=False, silence_thresh=-40, min_silence_len=500, keep_silence=100):
     """
     Main entry point for audiobook synthesis.
     - ignore_list: list of chapter names to ignore (case-insensitive substring match)
@@ -453,6 +497,20 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
         if audio_segments:
             final_audio = np.concatenate(audio_segments)
             soundfile.write(chapter_wav_path, final_audio, sample_rate)
+
+            if enable_silence_trimming:
+                trimmed_path = chapter_wav_path.with_suffix('.trimmed.wav')
+                remove_silence_pydub(
+                    chapter_wav_path,
+                    trimmed_path,
+                    silence_thresh=silence_thresh,
+                    min_silence_len=min_silence_len,
+                    keep_silence=keep_silence
+                )
+                # Replace original with trimmed
+                os.remove(chapter_wav_path)
+                os.rename(trimmed_path, chapter_wav_path)
+
             end_time = time.time()
             delta_seconds = end_time - start_time
             chars_per_sec = len(text) / delta_seconds

@@ -41,6 +41,7 @@ from PyQt6.QtWidgets import (
     QSlider,
     QDoubleSpinBox,
     QGroupBox,
+    QFormLayout,
 )
 
 import core
@@ -596,6 +597,10 @@ class MainWindow(QMainWindow):
                 exaggeration=self.settings.value('exaggeration', 0.5, type=float),
                 cfg_weight=self.settings.value('cfg_weight', 0.5, type=float),
                 temperature=self.settings.value('temperature', 0.8, type=float),
+                enable_silence_trimming=self.settings.value('enable_silence_trimming', False, type=bool),
+                silence_thresh=self.settings.value('silence_thresh', -40, type=float),
+                min_silence_len=self.settings.value('min_silence_len', 500, type=int),
+                keep_silence=self.settings.value('keep_silence', 100, type=int),
             )
             print(params)
             try:
@@ -1034,6 +1039,38 @@ class SettingsDialog(QDialog):
         model_group.setLayout(model_layout)
         layout.addWidget(model_group)
 
+        # Silence Trimming Settings
+        trim_group = QGroupBox("Silence Trimming")
+        trim_layout = QFormLayout(trim_group)
+        self.enable_trim_checkbox = QCheckBox("Enable Silence Trimming")
+        self.enable_trim_checkbox.setChecked(self.settings.value("enable_silence_trimming", False, type=bool))
+        self.enable_trim_checkbox.stateChanged.connect(self.save_trim_settings)
+        trim_layout.addRow(self.enable_trim_checkbox)
+
+        self.silence_thresh_spinbox = QDoubleSpinBox()
+        self.silence_thresh_spinbox.setRange(-100, 0)
+        self.silence_thresh_spinbox.setSuffix(" dBFS")
+        self.silence_thresh_spinbox.setValue(self.settings.value("silence_thresh", -40, type=float))
+        self.silence_thresh_spinbox.valueChanged.connect(self.save_trim_settings)
+        trim_layout.addRow("Silence Threshold:", self.silence_thresh_spinbox)
+
+        self.min_silence_len_spinbox = QDoubleSpinBox()
+        self.min_silence_len_spinbox.setRange(100, 5000)
+        self.min_silence_len_spinbox.setSuffix(" ms")
+        self.min_silence_len_spinbox.setStepType(QDoubleSpinBox.StepType.AdaptiveDecimalStepType)
+        self.min_silence_len_spinbox.setValue(self.settings.value("min_silence_len", 500, type=int))
+        self.min_silence_len_spinbox.valueChanged.connect(self.save_trim_settings)
+        trim_layout.addRow("Min Silence Length:", self.min_silence_len_spinbox)
+
+        self.keep_silence_spinbox = QDoubleSpinBox()
+        self.keep_silence_spinbox.setRange(0, 1000)
+        self.keep_silence_spinbox.setSuffix(" ms")
+        self.keep_silence_spinbox.setValue(self.settings.value("keep_silence", 100, type=int))
+        self.keep_silence_spinbox.valueChanged.connect(self.save_trim_settings)
+        trim_layout.addRow("Keep Silence:", self.keep_silence_spinbox)
+
+        layout.addWidget(trim_group)
+
         btn_box = QHBoxLayout()
         reset_btn = QPushButton("Reset to Defaults")
         reset_btn.clicked.connect(self.reset_to_defaults)
@@ -1043,6 +1080,12 @@ class SettingsDialog(QDialog):
         btn_box.addWidget(reset_btn)
         btn_box.addWidget(ok_btn)
         layout.addLayout(btn_box)
+
+    def save_trim_settings(self):
+        self.settings.setValue("enable_silence_trimming", self.enable_trim_checkbox.isChecked())
+        self.settings.setValue("silence_thresh", self.silence_thresh_spinbox.value())
+        self.settings.setValue("min_silence_len", self.min_silence_len_spinbox.value())
+        self.settings.setValue("keep_silence", self.keep_silence_spinbox.value())
 
     def reset_to_defaults(self):
         # Reset all settings to their default values

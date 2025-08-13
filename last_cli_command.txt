@@ -1,1 +1,0 @@
-python cli.py --batch "C:/ebooks" --output "C:/ebooks" --filterlist "nav,toc,Contents,halftitle,Gateway" --wav "C:/Users/User/Downloads/Patrick Stewart Performs A Christmas Carol (mp3cut.net).wav"
