@@ -1,0 +1,22 @@
+;FFMETADATA1
+title=The Digital Explorer
+artist=Test Author
+
+[CHAPTER]
+TIMEBASE=1/1000
+START=0
+END=59680
+title=Chapter 0
+
+[CHAPTER]
+TIMEBASE=1/1000
+START=59680
+END=126440
+title=Chapter 1
+
+[CHAPTER]
+TIMEBASE=1/1000
+START=126440
+END=191160
+title=Chapter 2
+

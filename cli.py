@@ -12,6 +12,7 @@ def cli_main():
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--file', '-f', help='Path to a single EPUB or PDF file')
     group.add_argument('--batch', '-b', help='Path to a folder containing EPUB/PDF files for batch processing')
+    group.add_argument('--remove-silence', '-rs', help='Path to an M4B file to remove silence from')
 
     parser.add_argument('-o', '--output', default='.', help='Output folder for the audiobook and temporary files', metavar='FOLDER')
     parser.add_argument('--filterlist', help='Comma-separated list of chapter names to ignore (case-insensitive substring match)')
@@ -32,7 +33,7 @@ def cli_main():
         else:
             print('CUDA GPU not available. Defaulting to CPU')
 
-    from core import main
+    from core import main, remove_silence_from_audio
 
     # Prepare ignore_list
     ignore_list = [s.strip() for s in args.filterlist.split(',')] if args.filterlist else None
@@ -46,6 +47,18 @@ def cli_main():
 
     # Prepare speed
     speed = args.speed
+
+    if args.remove_silence:
+        input_file = Path(args.remove_silence)
+        if not input_file.is_file():
+            print(f"Input file does not exist: {input_file}", file=sys.stderr)
+            sys.exit(1)
+        
+        output_file = Path(output_folder) / f"{input_file.stem}_no_silence.m4b"
+        if output_file.suffix.lower() != '.m4b':
+            output_file = output_file.with_suffix('.m4b')
+        remove_silence_from_audio(str(input_file), str(output_file))
+        sys.exit(0)
 
     # Batch mode
     if args.batch:

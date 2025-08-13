@@ -36,26 +36,27 @@ from functools import lru_cache
 
 sample_rate = 24000
 
-def remove_silence_pydub(input_file, output_file, silence_thresh=-40, min_silence_len=500, keep_silence=100):
+def remove_silence_from_audio(input_file, output_file, silence_thresh=-40, min_silence_len=500, keep_silence=100):
     """
-    Remove silences from audio file using pydub
+    Remove silences from an audio file using pydub.
 
     Args:
-        input_file: Path to input audio file
-        output_file: Path to output audio file
-        silence_thresh: Silence threshold in dBFS (lower = more sensitive)
-        min_silence_len: Minimum silence length in milliseconds to remove
-        keep_silence: Amount of silence to keep in ms
+        input_file: Path to input audio file (any format pydub can handle).
+        output_file: Path to output audio file.
+        silence_thresh: Silence threshold in dBFS (lower = more sensitive).
+        min_silence_len: Minimum silence length in milliseconds to remove.
+        keep_silence: Amount of silence to keep in ms.
     """
     # Load audio file
     audio = AudioSegment.from_file(input_file)
+    output_format = Path(output_file).suffix[1:]
 
     # Split audio on silence
     chunks = split_on_silence(
         audio,
-        min_silence_len=min_silence_len,  # Min silence length in ms
-        silence_thresh=silence_thresh,    # Silence threshold in dBFS
-        keep_silence=keep_silence                  # Keep 100ms of silence for natural flow
+        min_silence_len=min_silence_len,
+        silence_thresh=silence_thresh,
+        keep_silence=keep_silence
     )
 
     # Combine chunks
@@ -64,7 +65,16 @@ def remove_silence_pydub(input_file, output_file, silence_thresh=-40, min_silenc
         combined += chunk
 
     # Export result
-    combined.export(output_file, format="wav")
+    output_format = Path(output_file).suffix[1:]
+    if output_format == 'm4b':
+        # pydub doesn't directly support m4b, so we export as mp4 and rename
+        temp_output = Path(output_file).with_suffix('.mp4')
+        combined.export(temp_output, format='mp4')
+        if os.path.exists(output_file):
+            os.remove(output_file)
+        os.rename(temp_output, output_file)
+    else:
+        combined.export(output_file, format=output_format)
     print(f"Processed audio saved to: {output_file}")
 
     # Print statistics
@@ -500,7 +510,7 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
 
             if enable_silence_trimming:
                 trimmed_path = chapter_wav_path.with_suffix('.trimmed.wav')
-                remove_silence_pydub(
+                remove_silence_from_audio(
                     chapter_wav_path,
                     trimmed_path,
                     silence_thresh=silence_thresh,
