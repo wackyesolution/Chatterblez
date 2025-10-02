@@ -1,3 +1,3 @@
-in cli.py add an option to remove silence from an existing audiobook in m4b format and
-create a test that will not remove silence using Journey-Through-Time.epub and then run the cli on the file created with the remove silence option
-create a test that will remove silence using the-digital-explorer.epub using cli
+when the files are written they should be crated in a directory that is named after the file name everything up to the second "--"
+filename = Undersea_City_--_Pohl__Frederik__Williamson__Jack_--_Undersea_Trilogy_3_--_a1f51f6b0f4029100d2910e97cdad9dc_--_Anna_s_Archive.m4b
+folder would be "Undersea_City_--_Pohl__Frederik__Williamson__Jack_"

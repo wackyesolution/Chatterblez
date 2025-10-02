@@ -546,6 +546,13 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
         allow_sleep()
         return
 
+    original_name = Path(filename).with_suffix('').name  # removes old suffix
+    parts = original_name.split('--')
+    if len(parts) > 2:
+        new_dir_name = f"{parts[0]}--{parts[1]}".strip()
+        output_folder = Path(output_folder) / new_dir_name
+        output_folder.mkdir(parents=True, exist_ok=True)
+
     if has_ffmpeg:
         create_index_file(title, creator, chapter_wav_files, output_folder)
         try:
@@ -566,6 +573,25 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
             if post_event:
                 post_event('CORE_ERROR', message=str(e))
     print('Ended at:', time.strftime('%H:%M:%S'))
+
+    all_files = os.listdir(output_folder)
+    wav_files = [os.path.join(output_folder, f) for f in all_files if f.lower().endswith('.wav')]
+
+    for wav_file in wav_files:
+        try:
+            os.remove(wav_file)
+            print(f"[DEBUG] Deleted: {wav_file}")
+        except Exception as e:
+            print(f"[DEBUG] Failed to delete {wav_file}: {e}")
+
+
+
+
+
+
+
+
+
 
     allow_sleep()
 
@@ -867,6 +893,8 @@ def create_m4b(concat_file_path, filename, cover_image, output_folder, post_even
     print('Creating M4B file...')
 
     original_name = Path(filename).with_suffix('').name  # removes old suffix
+
+
     new_name = f"{original_name}.m4b"
     final_filename = Path(output_folder) / new_name
     chapters_txt_path = Path(output_folder) / "chapters.txt"

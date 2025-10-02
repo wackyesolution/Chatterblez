@@ -714,9 +714,7 @@ class MainWindow(QMainWindow):
         self.synth_running = False
         self.start_btn.setText("Start Synthesis")
         self.set_task_label("")
-        # To set "Transcoding" or "Multiplexing", call  or self.set_task_label("Multiplexing") at the appropriate place in your workflow.
-        # Delete all .wav files in the output folder with extra debug output
-        import glob
+
         out_dir = os.path.abspath(self.output_dir_edit.text())
         print(f"[DEBUG] Output directory: {out_dir}")
         if not os.path.isdir(out_dir):
@@ -734,15 +732,7 @@ class MainWindow(QMainWindow):
                     print(f"[DEBUG] Failed to delete {wav_file}: {e}")
             all_files_after = os.listdir(out_dir)
             print(f"[DEBUG] Files in output directory after deletion: {all_files_after}")
-        # open output folder
-        if os.path.isdir(out_dir):
-            if platform.system() == "Windows":
-                os.startfile(out_dir)
-            elif platform.system() == "Darwin":
-                subprocess.Popen(["open", out_dir])
-            else:
-                subprocess.Popen(["xdg-open", out_dir])
-        # Always show "All files completed" at the end
+
         elapsed_time = self.time_label.text().split(" | ")[0]
         QMessageBox.information(self, "All files completed", f"All files completed in {elapsed_time}")
 

@@ -41,10 +41,28 @@ If you have an NVIDIA GPU, install CUDA for optimal performance. This significan
 Navigate into the cloned directory and install the required Python packages:
 
 ```bash
-cd Chatterblez
-uv venv --python 3.12  # or however you prefer to create the venv
+pyenv install 3.11.9
+pyenv local 3.11.9
+
+# Create a new one with Python 3.11
+python -m venv .venv
+
+# Activate it
 .venv\Scripts\activate
-uv pip install --index-strategy unsafe-best-match -r requirements.txt
+
+# Now, install the requirements
+pip install --upgrade setuptools wheel
+
+pip install llvmlite==0.41.1 numba==0.58.1 numpy==1.25.2
+
+
+# Reinstall PyQt6 (this will automatically install the correct sip version)
+pip install PyQt6
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
+pip install -r requirements.txt
+
+pip install git+https://github.com/resemble-ai/chatterbox.git
+
 ```
 
 This might take a moment, so grab a coffee! ☕
