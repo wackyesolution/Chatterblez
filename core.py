@@ -36,20 +36,24 @@ from functools import lru_cache
 
 sample_rate = 24000
 
-def remove_silence_from_audio(input_file, output_file, silence_thresh=-40, min_silence_len=500, keep_silence=100):
+
+def remove_silence_from_audio(input_file, output_file, silence_thresh=-50, min_silence_len=1000, keep_silence=200):
     """
     Remove silences from an audio file using pydub.
 
     Args:
-        input_file: Path to input audio file (any format pydub can handle).
+        input_file: Path to input audio file.
         output_file: Path to output audio file.
-        silence_thresh: Silence threshold in dBFS (lower = more sensitive).
+        silence_thresh: Silence threshold in dBFS (try -50 to -60).
         min_silence_len: Minimum silence length in milliseconds to remove.
         keep_silence: Amount of silence to keep in ms.
     """
     # Load audio file
     audio = AudioSegment.from_file(input_file)
-    output_format = Path(output_file).suffix[1:]
+
+    # Analyze audio loudness for debugging
+    print(f"Audio dBFS: {audio.dBFS:.2f}")
+    print(f"Max dBFS: {audio.max_dBFS:.2f}")
 
     # Split audio on silence
     chunks = split_on_silence(
@@ -59,6 +63,14 @@ def remove_silence_from_audio(input_file, output_file, silence_thresh=-40, min_s
         keep_silence=keep_silence
     )
 
+    # Check if any chunks were found
+    print(f"Found {len(chunks)} audio chunks")
+
+    if len(chunks) == 0:
+        print("WARNING: No audio chunks found! Adjust silence_thresh or min_silence_len")
+        print(f"Try setting silence_thresh to {audio.dBFS - 10:.1f} dBFS")
+        return
+
     # Combine chunks
     combined = AudioSegment.empty()
     for chunk in chunks:
@@ -67,7 +79,6 @@ def remove_silence_from_audio(input_file, output_file, silence_thresh=-40, min_s
     # Export result
     output_format = Path(output_file).suffix[1:]
     if output_format == 'm4b':
-        # pydub doesn't directly support m4b, so we export as mp4 and rename
         temp_output = Path(output_file).with_suffix('.mp4')
         combined.export(temp_output, format='mp4')
         if os.path.exists(output_file):
@@ -75,17 +86,15 @@ def remove_silence_from_audio(input_file, output_file, silence_thresh=-40, min_s
         os.rename(temp_output, output_file)
     else:
         combined.export(output_file, format=output_format)
-    print(f"Processed audio saved to: {output_file}")
 
     # Print statistics
-    original_duration = len(audio) / 1000  # Convert to seconds
+    original_duration = len(audio) / 1000
     new_duration = len(combined) / 1000
     removed_time = original_duration - new_duration
 
-    print(f"Original duration: {original_duration:.2f}s")
+    print(f"\nOriginal duration: {original_duration:.2f}s")
     print(f"New duration: {new_duration:.2f}s")
-    print(f"Removed silence: {removed_time:.2f}s ({removed_time/original_duration*100:.1f}%)")
-
+    print(f"Removed silence: {removed_time:.2f}s ({removed_time / original_duration * 100:.1f}%)")
 
 import string
 
@@ -305,7 +314,7 @@ def clean_line(line: str) -> str:
 def main(file_path, pick_manually, speed, book_year='', output_folder='.',
          max_chapters=None, max_sentences=None, selected_chapters=None, post_event=None, audio_prompt_wav=None, batch_files=None, ignore_list=None, should_stop=None,
          repetition_penalty=1.2, min_p=0.05, top_p=1.0, exaggeration=0.5, cfg_weight=0.5, temperature=0.8,
-         enable_silence_trimming=False, silence_thresh=-40, min_silence_len=500, keep_silence=100):
+         enable_silence_trimming=False, silence_thresh=-50, min_silence_len=500, keep_silence=100):
     """
     Main entry point for audiobook synthesis.
     - ignore_list: list of chapter names to ignore (case-insensitive substring match)
@@ -742,6 +751,22 @@ def enqueue_output(stream, queue_obj):
         queue_obj.put(line)
     stream.close()
 
+MAX_PATH_LEN = 240
+
+def safe_concat_path(output_folder: str, filename: str) -> Path:
+    folder_path = Path(output_folder)
+    name_part = Path(filename).stem
+    suffix = Path(filename).suffix
+
+    candidate = folder_path / f"{name_part}{suffix}"
+
+    # If too long, truncate the base name until it fits
+    while len(str(candidate.resolve())) > MAX_PATH_LEN and len(name_part) > 1:
+        name_part = name_part[:-1]  # progressively shorten the name
+        candidate = folder_path / f"{name_part}{suffix}"
+
+
+    return candidate
 
 def concat_wavs_with_ffmpeg(chapter_files, output_folder, filename, post_event=None, should_stop=None):
     base_filename_stem = Path(filename).stem
@@ -896,7 +921,8 @@ def create_m4b(concat_file_path, filename, cover_image, output_folder, post_even
 
 
     new_name = f"{original_name}.m4b"
-    final_filename = Path(output_folder) / new_name
+
+    final_filename = safe_concat_path(output_folder,new_name)
     chapters_txt_path = Path(output_folder) / "chapters.txt"
     print('Creating M4B file...')
 

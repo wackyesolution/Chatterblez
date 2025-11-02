@@ -18,7 +18,7 @@ def cli_main():
     parser.add_argument('--filterlist', help='Comma-separated list of chapter names to ignore (case-insensitive substring match)')
     parser.add_argument('--wav', help='Path to a WAV file for voice conditioning (audio prompt)')
     parser.add_argument('--speed', type=float, default=1.0, help='Speech speed (default: 1.0)')
-    parser.add_argument('--cuda', default=False, help='Use GPU via Cuda in Torch if available', action='store_true')
+    parser.add_argument('--cuda', default=True, help='Use GPU via Cuda in Torch if available', action='store_true')
 
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
