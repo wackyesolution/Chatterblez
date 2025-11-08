@@ -39,7 +39,7 @@ sample_rate = 24000
 
 def remove_silence_from_audio(input_file, output_file, silence_thresh=-50, min_silence_len=1000, keep_silence=200):
     """
-    Remove silences from an audio file using pydub.
+    Remove silences from an audio file using pydub with high quality.
 
     Args:
         input_file: Path to input audio file.
@@ -54,6 +54,9 @@ def remove_silence_from_audio(input_file, output_file, silence_thresh=-50, min_s
     # Analyze audio loudness for debugging
     print(f"Audio dBFS: {audio.dBFS:.2f}")
     print(f"Max dBFS: {audio.max_dBFS:.2f}")
+    print(f"Sample rate: {audio.frame_rate}Hz")
+    print(f"Channels: {audio.channels}")
+    print(f"Sample width: {audio.sample_width} bytes")
 
     # Split audio on silence
     chunks = split_on_silence(
@@ -76,16 +79,33 @@ def remove_silence_from_audio(input_file, output_file, silence_thresh=-50, min_s
     for chunk in chunks:
         combined += chunk
 
-    # Export result
+    # Export with high quality settings
     output_format = Path(output_file).suffix[1:]
+
+    export_params = {
+        'format': 'ipod' if output_format in ['m4b', 'm4a'] else output_format,
+        'codec': 'aac',
+        'bitrate': '128k',  # High quality for audiobooks (64k-128k is standard)
+        'parameters': [
+            '-ar', str(audio.frame_rate),  # Preserve original sample rate
+            '-ac', str(audio.channels),  # Preserve channels
+            '-q:a', '2'  # AAC quality (0-9, lower is better)
+        ]
+    }
+
     if output_format == 'm4b':
-        temp_output = Path(output_file).with_suffix('.mp4')
-        combined.export(temp_output, format='mp4')
+        # Export as m4b with high quality
+        temp_output = Path(output_file).with_suffix('.m4a')
+        combined.export(temp_output, **export_params)
+
+        # Rename to .m4b
         if os.path.exists(output_file):
             os.remove(output_file)
         os.rename(temp_output, output_file)
     else:
-        combined.export(output_file, format=output_format)
+        combined.export(output_file, **export_params)
+
+    print(f"Processed audio saved to: {output_file}")
 
     # Print statistics
     original_duration = len(audio) / 1000
@@ -95,6 +115,7 @@ def remove_silence_from_audio(input_file, output_file, silence_thresh=-50, min_s
     print(f"\nOriginal duration: {original_duration:.2f}s")
     print(f"New duration: {new_duration:.2f}s")
     print(f"Removed silence: {removed_time:.2f}s ({removed_time / original_duration * 100:.1f}%)")
+
 
 import string
 

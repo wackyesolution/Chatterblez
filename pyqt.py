@@ -598,7 +598,7 @@ class MainWindow(QMainWindow):
                 cfg_weight=self.settings.value('cfg_weight', 0.5, type=float),
                 temperature=self.settings.value('temperature', 0.8, type=float),
                 enable_silence_trimming=self.settings.value('enable_silence_trimming', False, type=bool),
-                silence_thresh=self.settings.value('silence_thresh', -40, type=float),
+                silence_thresh=self.settings.value('silence_thresh', -50, type=float),
                 min_silence_len=self.settings.value('min_silence_len', 500, type=int),
                 keep_silence=self.settings.value('keep_silence', 100, type=int),
             )
