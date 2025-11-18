@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import argparse
+import logging
 import sys
 import os
 from pathlib import Path
@@ -28,10 +29,10 @@ def cli_main():
     if args.cuda:
         import torch.cuda
         if torch.cuda.is_available():
-            print('CUDA GPU available')
+            logging.info('CUDA GPU available')
             torch.set_default_device('cuda')
         else:
-            print('CUDA GPU not available. Defaulting to CPU')
+            logging.info('CUDA GPU not available. Defaulting to CPU')
 
     from core import main, remove_silence_from_audio
 
@@ -51,10 +52,10 @@ def cli_main():
     if args.remove_silence:
         input_file = Path(args.remove_silence)
         if not input_file.is_file():
-            print(f"Input file does not exist: {input_file}", file=sys.stderr)
+            logging.error(f"Input file does not exist: {input_file}")
             sys.exit(1)
         
-        output_file = Path(output_folder) / f"{input_file.stem}_no_silence.m4b"
+        output_file = Path(output_folder) / f"{input_file.stem}"
         if output_file.suffix.lower() != '.m4b':
             output_file = output_file.with_suffix('.m4b')
         remove_silence_from_audio(str(input_file), str(output_file))
@@ -64,7 +65,7 @@ def cli_main():
     if args.batch:
         folder = Path(args.batch)
         if not folder.is_dir():
-            print(f"Batch folder does not exist: {folder}", file=sys.stderr)
+            logging.error(f"Batch folder does not exist: {folder}")
             sys.exit(1)
         supported_exts = [".epub", ".pdf"]
         batch_files = [
@@ -73,7 +74,7 @@ def cli_main():
             if os.path.isfile(str(folder / f)) and os.path.splitext(f)[1].lower() in supported_exts
         ]
         if not batch_files:
-            print("No supported files (.epub, .pdf) found in the selected folder.", file=sys.stderr)
+            logging.error("No supported files (.epub, .pdf) found in the selected folder.")
             sys.exit(1)
         main(
             file_path=None,
@@ -88,7 +89,7 @@ def cli_main():
     elif args.file:
         file_path = args.file
         if not os.path.isfile(file_path):
-            print(f"File does not exist: {file_path}", file=sys.stderr)
+            logging.error(f"File does not exist: {file_path}")
             sys.exit(1)
         main(
             file_path=file_path,
@@ -101,4 +102,12 @@ def cli_main():
         )
 
 if __name__ == '__main__':
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler("logs/app.log"),
+            logging.StreamHandler()
+        ]
+    )
     cli_main()

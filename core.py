@@ -4,6 +4,7 @@
 # chatterbox-tts
 # by Zachary Erskine
 # by Claudio Santini 2025 - https://claudio.uk
+import logging
 import os
 import sys
 import traceback
@@ -52,11 +53,11 @@ def remove_silence_from_audio(input_file, output_file, silence_thresh=-50, min_s
     audio = AudioSegment.from_file(input_file)
 
     # Analyze audio loudness for debugging
-    print(f"Audio dBFS: {audio.dBFS:.2f}")
-    print(f"Max dBFS: {audio.max_dBFS:.2f}")
-    print(f"Sample rate: {audio.frame_rate}Hz")
-    print(f"Channels: {audio.channels}")
-    print(f"Sample width: {audio.sample_width} bytes")
+    logging.info(f"Audio dBFS: {audio.dBFS:.2f}")
+    logging.info(f"Max dBFS: {audio.max_dBFS:.2f}")
+    logging.info(f"Sample rate: {audio.frame_rate}Hz")
+    logging.info(f"Channels: {audio.channels}")
+    logging.info(f"Sample width: {audio.sample_width} bytes")
 
     # Split audio on silence
     chunks = split_on_silence(
@@ -67,11 +68,11 @@ def remove_silence_from_audio(input_file, output_file, silence_thresh=-50, min_s
     )
 
     # Check if any chunks were found
-    print(f"Found {len(chunks)} audio chunks")
+    logging.info(f"Found {len(chunks)} audio chunks")
 
     if len(chunks) == 0:
-        print("WARNING: No audio chunks found! Adjust silence_thresh or min_silence_len")
-        print(f"Try setting silence_thresh to {audio.dBFS - 10:.1f} dBFS")
+        logging.warning("WARNING: No audio chunks found! Adjust silence_thresh or min_silence_len")
+        logging.warning(f"Try setting silence_thresh to {audio.dBFS - 10:.1f} dBFS")
         return
 
     # Combine chunks
@@ -79,42 +80,52 @@ def remove_silence_from_audio(input_file, output_file, silence_thresh=-50, min_s
     for chunk in chunks:
         combined += chunk
 
-    # Export with high quality settings
-    output_format = Path(output_file).suffix[1:]
+    # Export based on file extension
+    output_format = Path(output_file).suffix[1:].lower()
 
-    export_params = {
-        'format': 'ipod' if output_format in ['m4b', 'm4a'] else output_format,
-        'codec': 'aac',
-        'bitrate': '128k',  # High quality for audiobooks (64k-128k is standard)
-        'parameters': [
-            '-ar', str(audio.frame_rate),  # Preserve original sample rate
-            '-ac', str(audio.channels),  # Preserve channels
-            '-q:a', '2'  # AAC quality (0-9, lower is better)
-        ]
-    }
+    if output_format == 'wav':
+        # Export as WAV with PCM (uncompressed)
+        combined.export(
+            output_file,
+            format='wav',
+            parameters=[
+                '-ar', str(audio.frame_rate),  # Preserve sample rate
+                '-ac', str(audio.channels)  # Preserve channels
+            ]
+        )
+    elif output_format in ['m4a', 'm4b']:
+        # Export as M4A/M4B with AAC
+        export_params = {
+            'format': 'ipod',
+            'codec': 'aac',
+            'bitrate': '128k',
+            'parameters': [
+                '-ar', str(audio.frame_rate),
+                '-ac', str(audio.channels),
+                '-q:a', '2'
+            ]
+        }
 
-    if output_format == 'm4b':
-        # Export as m4b with high quality
-        temp_output = Path(output_file).with_suffix('.m4a')
-        combined.export(temp_output, **export_params)
-
-        # Rename to .m4b
-        if os.path.exists(output_file):
-            os.remove(output_file)
-        os.rename(temp_output, output_file)
+        if output_format == 'm4b':
+            temp_output = Path(output_file).with_suffix('.m4a')
+            combined.export(temp_output, **export_params)
+            if os.path.exists(output_file):
+                os.remove(output_file)
+            os.rename(temp_output, output_file)
+        else:
+            combined.export(output_file, **export_params)
     else:
-        combined.export(output_file, **export_params)
+        # For other formats, let pydub handle it
+        combined.export(output_file, format=output_format)
 
-    print(f"Processed audio saved to: {output_file}")
-
-    # Print statistics
+    logging.info(f"Processed audio saved to: {output_file}")
     original_duration = len(audio) / 1000
     new_duration = len(combined) / 1000
     removed_time = original_duration - new_duration
 
-    print(f"\nOriginal duration: {original_duration:.2f}s")
-    print(f"New duration: {new_duration:.2f}s")
-    print(f"Removed silence: {removed_time:.2f}s ({removed_time / original_duration * 100:.1f}%)")
+    logging.info(f"\nOriginal duration: {original_duration:.2f}s")
+    logging.info(f"New duration: {new_duration:.2f}s")
+    logging.info(f"Removed silence: {removed_time:.2f}s ({removed_time / original_duration * 100:.1f}%)")
 
 
 import string
@@ -172,7 +183,7 @@ def update_stats(stats, added_chars):
 
 def load_spacy():
     if not spacy.util.is_package("en_core_web_trf"):
-        print("Downloading Spacy model en_core_web_trf...")
+        logging.info("Downloading Spacy model en_core_web_trf...")
         spacy.cli.download("en_core_web_trf")
 
 
@@ -225,18 +236,17 @@ def set_espeak_library():
                 raise RuntimeError(
                     "eSpeak NG library not found in default paths. Please set ESPEAK_LIBRARY environment variable.")
         else:
-            print('Unsupported OS, please set the espeak library path manually')
+            logging.warning('Unsupported OS, please set the espeak library path manually')
             return
-        print('Using espeak library:', library)
+        logging.info('Using espeak library: %s', library)
         from phonemizer.backend.espeak.wrapper import EspeakWrapper
         EspeakWrapper.set_library(library)
     except Exception:
-        traceback.print_exc()
-        print("Error finding espeak-ng library:")
-        print("Probably you haven't installed espeak-ng.")
-        print("On Mac: brew install espeak-ng")
-        print("On Linux: sudo apt install espeak-ng")
-        print("On Windows: Download from https://github.com/espeak-ng/espeak-ng/releases")
+        logging.exception("Error finding espeak-ng library")
+        logging.warning("Probably you haven't installed espeak-ng.")
+        logging.warning("On Mac: brew install espeak-ng")
+        logging.warning("On Linux: sudo apt install espeak-ng")
+        logging.warning("On Windows: Download from https://github.com/espeak-ng/espeak-ng/releases")
 
 
 def match_case(word, replacement):
@@ -342,6 +352,30 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
     - batch_files: if provided, a list of file paths to process sequentially
     - should_stop: optional callback, returns True if synthesis should be interrupted
     """
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - [%(module)s:%(lineno)d] - %(message)s',
+        handlers=[
+            logging.FileHandler("logs/app.log"),
+            logging.StreamHandler()
+        ]
+    )
+    params = {
+        "repetition_penalty":repetition_penalty,
+        "min_p":min_p,
+        "top_p":top_p,
+        "exaggeration":exaggeration,
+        "cfg_weight":cfg_weight,
+        "temperature":temperature,
+        "enable_silence_trimming":enable_silence_trimming,
+        "silence_thresh":silence_thresh,
+        "min_silence_len":min_silence_len,
+        "keep_silence":keep_silence,
+    }
+
+    # Log all parameters
+    for key, value in params.items():
+        logging.info(f"{key} = {value}")
     if should_stop is None:
         should_stop = lambda: False
 
@@ -362,7 +396,17 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
                 audio_prompt_wav=audio_prompt_wav,
                 batch_files=None,  # Prevent infinite recursion
                 ignore_list=ignore_list,
-                should_stop=should_stop
+                should_stop=should_stop,
+                repetition_penalty=repetition_penalty,
+                min_p=min_p,
+                top_p=top_p,
+                exaggeration=exaggeration,
+                cfg_weight=cfg_weight,
+                temperature=temperature,
+                enable_silence_trimming=enable_silence_trimming,
+                silence_thresh=silence_thresh,
+                min_silence_len=min_silence_len,
+                keep_silence=keep_silence,
             )
             if post_event:
                 post_event('CORE_FILE_FINISHED', file_path=batch_file)
@@ -382,7 +426,7 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
     filename = Path(file_path).name
     filename = re.sub(r'[^a-zA-Z0-9_.-]', '_', filename)
     extension = os.path.splitext(file_path)[1].lower()
-    print(f"extension {extension}")
+    logging.info(f"extension {extension}")
     if extension == '.pdf':
         title = os.path.splitext(os.path.basename(file_path))[0]
         creator = "Unknown"
@@ -398,7 +442,7 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
         cover_maybe = find_cover(book)
         cover_image = cover_maybe.get_content() if cover_maybe else b""
         if cover_maybe:
-            print(f'Found cover image {cover_maybe.file_name} in {cover_maybe.media_type} format')
+            logging.info(f'Found cover image {cover_maybe.file_name} in {cover_maybe.media_type} format')
             if False:
                 # Save cover image as "<book name>.<image extension>"
                 media_type = cover_maybe.media_type  # e.g., "image/jpeg"
@@ -417,7 +461,7 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
                 cover_path = Path(output_folder) / cover_filename
                 with open(cover_path, "wb") as f:
                     f.write(cover_image)
-                print(f"Cover image saved as {cover_path}")
+                logging.info(f"Cover image saved as {cover_path}")
         document_chapters = find_document_chapters_and_extract_texts(book)
 
         if not selected_chapters:
@@ -443,7 +487,7 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
 
     has_ffmpeg = shutil.which('ffmpeg') is not None
     if not has_ffmpeg:
-        print('\033[91m' + 'ffmpeg not found. Please install ffmpeg to create mp3 and m4b audiobook files.' + '\033[0m')
+        logging.error('ffmpeg not found. Please install ffmpeg to create mp3 and m4b audiobook files.')
         if post_event:
             post_event('CORE_ERROR', message="FFmpeg not found. Please install it to create audiobooks.")
         allow_sleep()
@@ -457,17 +501,17 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
         eta='–',
         progress=0
     )
-    print('Started at:', time.strftime('%H:%M:%S'))
-    print(f'Total characters: {stats.total_chars:,}')
-    print('Total words:', len(' '.join(texts).split()))
+    logging.info('Started at: %s', time.strftime('%H:%M:%S'))
+    logging.info(f'Total characters: {stats.total_chars:,}')
+    logging.info('Total words: %d', len(' '.join(texts).split()))
     eta = strfdelta((stats.total_chars - stats.processed_chars) / stats.chars_per_sec)
-    print(f'Estimated time remaining (assuming {stats.chars_per_sec} chars/sec): {eta}')
+    logging.info(f'Estimated time remaining (assuming {stats.chars_per_sec} chars/sec): {eta}')
     chapter_wav_files = []
 
     import torchaudio as ta
     from chatterbox.tts import ChatterboxTTS
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f'running on device: {device}')
+    logging.info(f'running on device: {device}')
 
     cb_model = ChatterboxTTS.from_pretrained(device=device)
 
@@ -483,7 +527,7 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
     nlp = get_nlp()
     for i, chapter in enumerate(selected_chapters, start=1):
         if should_stop():
-            print("Synthesis interrupted by user (chapter loop).")
+            logging.info("Synthesis interrupted by user (chapter loop).")
             break
         if max_chapters and i > max_chapters: break
         lines = chapter.extracted_text.splitlines()
@@ -494,20 +538,19 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
                 cleaned_line :=  clean_line(line)
             ).strip() and re.search(r'\w', cleaned_line)
         )
-        print(f'Chapter {i}: {text}')
-        
+
         # Sanitize the chapter name to remove all non-alphanumeric characters for the filename
         xhtml_file_name = re.sub(r'[^a-zA-Z0-9-]', '', chapter.get_name()).replace('xhtml', '').replace('html', '')
         chapter_wav_path = Path(output_folder) / filename.replace(extension, f'_chapter_{xhtml_file_name}.wav')
         chapter_wav_files.append(chapter_wav_path)
         if Path(chapter_wav_path).exists():
-            print(f'File for chapter {i} already exists. Skipping')
+            logging.info(f'File for chapter {i} already exists. Skipping')
             stats.processed_chars += len(text)
             if post_event and hasattr(chapter, "chapter_index"):
                 post_event('CORE_CHAPTER_FINISHED', chapter_index=chapter.chapter_index)
             continue
         if len(text.strip()) < 10:
-            print(f'Skipping empty chapter {i}')
+            logging.info(f'Skipping empty chapter {i}')
             chapter_wav_files.remove(chapter_wav_path)
             continue
         if i == 1:
@@ -532,7 +575,7 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
             temperature=temperature
         )
         if should_stop():
-            print("Synthesis interrupted by user (after audio_segments).")
+            logging.info("Synthesis interrupted by user (after audio_segments).")
             break
         if audio_segments:
             final_audio = np.concatenate(audio_segments)
@@ -554,23 +597,23 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
             end_time = time.time()
             delta_seconds = end_time - start_time
             chars_per_sec = len(text) / delta_seconds
-            print('Chapter written to', chapter_wav_path)
+            logging.info('Chapter written to %s', chapter_wav_path)
             if post_event and hasattr(chapter, "chapter_index"):
                 post_event('CORE_CHAPTER_FINISHED', chapter_index=chapter.chapter_index)
-            print(f'Chapter {i} read in {delta_seconds:.2f} seconds ({chars_per_sec:.0f} characters per second)')
+            logging.info(f'Chapter {i} read in {delta_seconds:.2f} seconds ({chars_per_sec:.0f} characters per second)')
         else:
-            print(f'Warning: No audio generated for chapter {i}')
+            logging.warning(f'Warning: No audio generated for chapter {i}')
             chapter_wav_files.remove(chapter_wav_path)
 
     if not chapter_wav_files:
-        print("No audio chapters were generated. Cannot create audiobook.", file=sys.stderr)
+        logging.error("No audio chapters were generated. Cannot create audiobook.")
         if post_event:
             post_event('CORE_ERROR', message="No audio chapters were generated.")
         allow_sleep()
         return
 
     if not chapter_wav_files:
-        print("No audio chapters were generated. Cannot create audiobook.", file=sys.stderr)
+        logging.error("No audio chapters were generated. Cannot create audiobook.")
         if post_event:
             post_event('CORE_ERROR', message="No audio chapters were generated.")
         allow_sleep()
@@ -589,20 +632,20 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
             concat_file_path = concat_wavs_with_ffmpeg(chapter_wav_files, output_folder, filename,
                                                        post_event=post_event, should_stop=should_stop)
             if should_stop() or concat_file_path is None:
-                print("Synthesis interrupted before or during FFmpeg concat.")
+                logging.info("Synthesis interrupted before or during FFmpeg concat.")
                 allow_sleep()
                 return
             create_m4b(concat_file_path, filename, cover_image, output_folder, post_event=post_event, should_stop=should_stop)
             if should_stop():
-                print("Synthesis interrupted before or during FFmpeg m4b creation.")
+                logging.info("Synthesis interrupted before or during FFmpeg m4b creation.")
                 allow_sleep()
                 return
             if post_event: post_event('CORE_FINISHED')
         except RuntimeError as e:
-            print(f"Audiobook creation failed: {e}", file=sys.stderr)
+            logging.error(f"Audiobook creation failed: {e}")
             if post_event:
                 post_event('CORE_ERROR', message=str(e))
-    print('Ended at:', time.strftime('%H:%M:%S'))
+    logging.info('Ended at: %s', time.strftime('%H:%M:%S'))
 
     all_files = os.listdir(output_folder)
     wav_files = [os.path.join(output_folder, f) for f in all_files if f.lower().endswith('.wav')]
@@ -610,18 +653,9 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
     for wav_file in wav_files:
         try:
             os.remove(wav_file)
-            print(f"[DEBUG] Deleted: {wav_file}")
+            logging.debug(f"Deleted: {wav_file}")
         except Exception as e:
-            print(f"[DEBUG] Failed to delete {wav_file}: {e}")
-
-
-
-
-
-
-
-
-
+            logging.debug(f"Failed to delete {wav_file}: {e}")
 
     allow_sleep()
 
@@ -650,7 +684,7 @@ def find_cover(book):
 
 def print_selected_chapters(document_chapters, chapters):
     ok = 'X' if platform.system() == 'Windows' else '✅'
-    print(tabulate([
+    logging.info("\n" + tabulate([
         [i, c.get_name(), len(c.extracted_text), ok if c in chapters else '', chapter_beginning_one_liner(c)]
         for i, c in enumerate(document_chapters, start=1)
     ], headers=['#', 'Chapter', 'Text Length', 'Selected', 'First words']))
@@ -667,7 +701,7 @@ def gen_audio_segments(cb_model, nlp, text, speed, stats=None, max_sentences=Non
     sentences = list(doc.sents)
     for i, sent in enumerate(sentences):
         if should_stop():
-            print("Synthesis interrupted by user (sentence loop).")
+            logging.info("Synthesis interrupted by user (sentence loop).")
             return audio_segments
         if max_sentences and i > max_sentences: break
         # ChatterboxTTS does not use speed param, but keep for compatibility
@@ -736,7 +770,7 @@ def chapter_beginning_one_liner(c, chars=20):
 def find_good_chapters(document_chapters):
     chapters = [c for c in document_chapters if c.get_type() == ebooklib.ITEM_DOCUMENT and is_chapter(c)]
     if len(chapters) == 0:
-        print('Not easy to recognize the chapters, defaulting to all non-empty documents.')
+        logging.info('Not easy to recognize the chapters, defaulting to all non-empty documents.')
         chapters = [c for c in document_chapters if
                     c.get_type() == ebooklib.ITEM_DOCUMENT and len(c.extracted_text) > 10]
     return chapters
@@ -812,10 +846,10 @@ def concat_wavs_with_ffmpeg(chapter_files, output_folder, filename, post_event=N
         str(concat_file_path)
     ]
 
-    print(f"Running FFmpeg concat command: {' '.join(ffmpeg_concat_cmd)}")
+    logging.info(f"Running FFmpeg concat command: {' '.join(ffmpeg_concat_cmd)}")
 
     total_duration_seconds = sum(probe_duration(wav_file) for wav_file in chapter_files if wav_file.exists())
-    print(f"Concatenation Total Duration: {total_duration_seconds:.2f} seconds")
+    logging.info(f"Concatenation Total Duration: {total_duration_seconds:.2f} seconds")
 
     process = subprocess.Popen(
         ffmpeg_concat_cmd,
@@ -847,7 +881,7 @@ def concat_wavs_with_ffmpeg(chapter_files, output_folder, filename, post_event=N
             line = q_stderr.get_nowait().strip()
             if line:
                 initial_stderr_lines.append(line)
-                print(f"FFmpeg CONCAT Initial STDERR: {line}", file=sys.stderr)
+                logging.error(f"FFmpeg CONCAT Initial STDERR: {line}")
         except queue.Empty:
             time.sleep(0.01)  # Small pause to yield CPU
 
@@ -857,7 +891,7 @@ def concat_wavs_with_ffmpeg(chapter_files, output_folder, filename, post_event=N
     try:
         while process.poll() is None or not q_stdout.empty() or not q_stderr.empty():
             if should_stop():
-                print("Synthesis interrupted by user (ffmpeg concat). Terminating FFmpeg process.")
+                logging.info("Synthesis interrupted by user (ffmpeg concat). Terminating FFmpeg process.")
                 process.terminate()
                 process.wait()
                 return None
@@ -891,7 +925,7 @@ def concat_wavs_with_ffmpeg(chapter_files, output_folder, filename, post_event=N
                 line_stderr = q_stderr.get(timeout=0.05)
                 stripped_line = line_stderr.strip()
                 if stripped_line:
-                    print(f"FFmpeg CONCAT STDERR: {stripped_line}", file=sys.stderr)
+                    logging.error(f"FFmpeg CONCAT STDERR: {stripped_line}")
                     concat_error_output.append(stripped_line)
             except queue.Empty:
                 pass
@@ -919,7 +953,7 @@ def concat_wavs_with_ffmpeg(chapter_files, output_folder, filename, post_event=N
         while not q_stderr.empty():
             stripped_line = q_stderr.get_nowait().strip()
             if stripped_line:
-                print(f"FFmpeg CONCAT STDERR (Post-loop): {stripped_line}", file=sys.stderr)
+                logging.error(f"FFmpeg CONCAT STDERR (Post-loop): {stripped_line}")
                 concat_error_output.append(stripped_line)
 
         process.wait()
@@ -929,14 +963,14 @@ def concat_wavs_with_ffmpeg(chapter_files, output_folder, filename, post_event=N
     if process.returncode != 0:
         error_message = f"FFmpeg concatenation failed with error code {process.returncode}.\nDetails:\n" + "\n".join(
             concat_error_output[-50:])
-        print(error_message, file=sys.stderr)
+        logging.error(error_message)
         raise RuntimeError(error_message)
 
     return concat_file_path
 
 
 def create_m4b(concat_file_path, filename, cover_image, output_folder, post_event=None, should_stop=None):
-    print('Creating M4B file...')
+    logging.info('Creating M4B file...')
 
     original_name = Path(filename).with_suffix('').name  # removes old suffix
 
@@ -945,7 +979,7 @@ def create_m4b(concat_file_path, filename, cover_image, output_folder, post_even
 
     final_filename = safe_concat_path(output_folder,new_name)
     chapters_txt_path = Path(output_folder) / "chapters.txt"
-    print('Creating M4B file...')
+    logging.info('Creating M4B file...')
 
     ffmpeg_command = [
         'ffmpeg',
@@ -994,10 +1028,10 @@ def create_m4b(concat_file_path, filename, cover_image, output_folder, post_even
         str(final_filename)
     ])
 
-    print(f"Running FFmpeg command:\n{' '.join(ffmpeg_command)}\n")
+    logging.info(f"Running FFmpeg command:\n{' '.join(ffmpeg_command)}\n")
 
     total_duration_seconds = probe_duration(concat_file_path)  # Changed to use Path object directly
-    print(f"M4B Conversion Total Duration: {total_duration_seconds:.2f} seconds")
+    logging.info(f"M4B Conversion Total Duration: {total_duration_seconds:.2f} seconds")
 
     process = subprocess.Popen(
         ffmpeg_command,
@@ -1028,7 +1062,7 @@ def create_m4b(concat_file_path, filename, cover_image, output_folder, post_even
             line = q_stderr.get_nowait().strip()
             if line:
                 initial_stderr_lines.append(line)
-                print(f"FFmpeg M4B Initial STDERR: {line}", file=sys.stderr)
+                logging.error(f"FFmpeg M4B Initial STDERR: {line}")
         except queue.Empty:
             time.sleep(0.01)
 
@@ -1038,7 +1072,7 @@ def create_m4b(concat_file_path, filename, cover_image, output_folder, post_even
     try:
         while process.poll() is None or not q_stdout.empty() or not q_stderr.empty():
             if should_stop():
-                print("Synthesis interrupted by user (ffmpeg m4b). Terminating FFmpeg process.")
+                logging.info("Synthesis interrupted by user (ffmpeg m4b). Terminating FFmpeg process.")
                 process.terminate()
                 process.wait()
                 return
@@ -1072,7 +1106,7 @@ def create_m4b(concat_file_path, filename, cover_image, output_folder, post_even
                 line_stderr = q_stderr.get(timeout=0.05)
                 stripped_line = line_stderr.strip()
                 if stripped_line:
-                    print(f"FFmpeg M4B STDERR: {stripped_line}", file=sys.stderr)
+                    logging.error(f"FFmpeg M4B STDERR: {stripped_line}")
                     ffmpeg_error_output.append(stripped_line)
             except queue.Empty:
                 pass
@@ -1100,25 +1134,25 @@ def create_m4b(concat_file_path, filename, cover_image, output_folder, post_even
         while not q_stderr.empty():
             stripped_line = q_stderr.get_nowait().strip()
             if stripped_line:
-                print(f"FFmpeg M4B STDERR (Post-loop): {stripped_line}", file=sys.stderr)
+                logging.error(f"FFmpeg M4B STDERR (Post-loop): {stripped_line}")
                 ffmpeg_error_output.append(stripped_line)
 
         process.wait()
 
     Path(concat_file_path).unlink()
     if process.returncode == 0:
-        print(f'{final_filename} created. Enjoy your audiobook.')
+        logging.info(f'{final_filename} created. Enjoy your audiobook.')
     else:
         error_message = f"FFmpeg process exited with error code {process.returncode}.\nDetails:\n" + "\n".join(
             ffmpeg_error_output[-50:])
-        print(error_message, file=sys.stderr)
+        logging.error(error_message)
         raise RuntimeError(error_message)
 
 
 def probe_duration(file_name):
     # Check if the file exists before probing, to prevent errors if file was not created
     if not Path(file_name).exists():
-        print(f"Warning: File not found for ffprobe duration: {file_name}", file=sys.stderr)
+        logging.warning(f"Warning: File not found for ffprobe duration: {file_name}")
         return 0.0
 
     args = ['ffprobe', '-i', str(file_name), '-show_entries', 'format=duration', '-v', 'quiet', '-of',
@@ -1130,10 +1164,10 @@ def probe_duration(file_name):
         duration = float(proc.stdout.strip())
         return duration
     except subprocess.CalledProcessError as e:
-        print(f"Error probing duration for {file_name}: {e.stderr}", file=sys.stderr)
+        logging.error(f"Error probing duration for {file_name}: {e.stderr}")
         return 0.0
     except ValueError:  # Occurs if stdout is not a float (e.g., empty or error message)
-        print(f"Could not parse duration from ffprobe output for {file_name}: '{proc.stdout.strip()}'", file=sys.stderr)
+        logging.error(f"Could not parse duration from ffprobe output for {file_name}: '{proc.stdout.strip()}'")
         return 0.0
 
 

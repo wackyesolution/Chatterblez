@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import platform
 import re
@@ -46,6 +47,7 @@ from PyQt6.QtWidgets import (
 
 import core
 
+
 class CoreThread(QThread):
     core_started = pyqtSignal()
     progress = pyqtSignal(object)
@@ -78,10 +80,10 @@ class CoreThread(QThread):
 
     def run(self):
         try:
-            print("CoreThread started with params:", self.params)
+            logging.info("CoreThread started with params: %s", self.params)
             core.main(**self.params, post_event=self.post_event, should_stop=lambda: self._should_stop)
         except Exception as exc:
-            print("CoreThread exception:", exc)
+            logging.error("CoreThread exception: %s", exc)
             self.error.emit(str(exc))
 
 
@@ -431,7 +433,7 @@ class MainWindow(QMainWindow):
 
             row = self.chapter_list.currentRow()
             if not (0 <= row < len(self.document_chapters)):
-                print("Preview Unavailable: No chapter selected.")
+                logging.warning("Preview Unavailable: No chapter selected.")
                 QMessageBox.information(self, "Preview Unavailable", "No chapter selected.")
                 self.preview_btn.setText("Preview")
                 return
@@ -445,7 +447,7 @@ class MainWindow(QMainWindow):
                     cleaned_lines.append(cleaned_line)
             text = "\n".join(cleaned_lines)
             if not text.strip():
-                print("Preview Unavailable: No text to preview.")
+                logging.warning("Preview Unavailable: No text to preview.")
                 QMessageBox.information(self, "Preview Unavailable", "No text to preview.")
                 self.preview_btn.setText("Preview")
                 return
@@ -477,7 +479,7 @@ class MainWindow(QMainWindow):
                     else:
                         subprocess.Popen(["aplay", tmpf.name])
         except Exception as e:
-            print(f"Preview Error: {e}")
+            logging.error(f"Preview Error: {e}")
             QMessageBox.critical(self, "Preview Error", f"Preview failed: {e}")
         finally:
             self.preview_btn.setText("Preview")
@@ -503,9 +505,9 @@ class MainWindow(QMainWindow):
     def handle_start_stop_synthesis(self):
         if not self.synth_running:
             # Start synthesis
-            print("Start synthesis clicked")
+            logging.info("Start synthesis clicked")
             if not self.selected_file_path and not (hasattr(self, "batch_files") and self.batch_files):
-                print("No file selected")
+                logging.warning("No file selected")
                 QMessageBox.warning(self, "No file", "Please open an e-book first")
                 return
 
@@ -554,7 +556,11 @@ class MainWindow(QMainWindow):
                     top_p=self.settings.value('top_p', 1.0, type=float),
                     exaggeration=self.settings.value('exaggeration', 0.5, type=float),
                     cfg_weight=self.settings.value('cfg_weight', 0.5, type=float),
-                    temperature=self.settings.value('temperature', 0.8, type=float)
+                    temperature=self.settings.value('temperature', 0.8, type=float),
+                    enable_silence_trimming=self.settings.value('enable_silence_trimming', False, type=bool),
+                    silence_thresh=self.settings.value('silence_thresh', -50, type=float),
+                    min_silence_len=self.settings.value('min_silence_len', 500, type=int),
+                    keep_silence=self.settings.value('keep_silence', 100, type=int),
                 )
                 self.batch_worker.progress_update.connect(self.on_batch_progress_update)
                 self.batch_worker.chapter_progress.connect(self.on_core_progress)
@@ -565,11 +571,11 @@ class MainWindow(QMainWindow):
                 return
             else:
                 if not selected_chapters:
-                    print("No chapters selected after build. Aborting synthesis.")
+                    logging.warning("No chapters selected after build. Aborting synthesis.")
                     QMessageBox.warning(self, "No chapters", "No chapters selected")
                     return
             if not selected_chapters:
-                print("No chapters selected")
+                logging.warning("No chapters selected")
                 QMessageBox.warning(self, "No chapters", "No chapters selected")
                 return
 
@@ -583,7 +589,7 @@ class MainWindow(QMainWindow):
                 is_batch=False
             )
 
-            print("About to create CoreThread with params:")
+            logging.info("About to create CoreThread with params:")
             params = dict(
                 file_path=self.selected_file_path,
                 pick_manually=False,
@@ -602,7 +608,7 @@ class MainWindow(QMainWindow):
                 min_silence_len=self.settings.value('min_silence_len', 500, type=int),
                 keep_silence=self.settings.value('keep_silence', 100, type=int),
             )
-            print(params)
+            logging.info(params)
             try:
                 self.core_thread = CoreThread(**params)
                 self.core_thread.core_started.connect(self.on_core_started)
@@ -615,15 +621,15 @@ class MainWindow(QMainWindow):
                 self.synth_running = True
                 self.start_btn.setText("Stop Synthesizing")
             except Exception as e:
-                print(f"Exception during CoreThread creation/start: {e}")
+                logging.error(f"Exception during CoreThread creation/start: {e}")
         else:
             # Stop synthesis
-            print("Stop synthesis clicked")
+            logging.info("Stop synthesis clicked")
             if self.core_thread is not None:
                 self.core_thread.stop()
             # Stop batch worker if in batch mode
             if hasattr(self, "batch_worker") and self.batch_worker is not None:
-                print("[DEBUG] MainWindow: calling batch_worker.stop()")
+                logging.debug("[DEBUG] MainWindow: calling batch_worker.stop()")
                 self.batch_worker.stop()
             self.synth_running = False
             self.start_btn.setText("Start Synthesis")
@@ -716,22 +722,22 @@ class MainWindow(QMainWindow):
         self.set_task_label("")
 
         out_dir = os.path.abspath(self.output_dir_edit.text())
-        print(f"[DEBUG] Output directory: {out_dir}")
+        logging.debug(f"Output directory: {out_dir}")
         if not os.path.isdir(out_dir):
-            print(f"[DEBUG] Output directory does not exist: {out_dir}")
+            logging.debug(f"Output directory does not exist: {out_dir}")
         else:
             all_files = os.listdir(out_dir)
-            print(f"[DEBUG] Files in output directory before deletion: {all_files}")
+            logging.debug(f"Files in output directory before deletion: {all_files}")
             wav_files = [os.path.join(out_dir, f) for f in all_files if f.lower().endswith('.wav')]
-            print(f"[DEBUG] .wav files to delete: {wav_files}")
+            logging.debug(f".wav files to delete: {wav_files}")
             for wav_file in wav_files:
                 try:
                     os.remove(wav_file)
-                    print(f"[DEBUG] Deleted: {wav_file}")
+                    logging.debug(f"Deleted: {wav_file}")
                 except Exception as e:
-                    print(f"[DEBUG] Failed to delete {wav_file}: {e}")
+                    logging.debug(f"Failed to delete {wav_file}: {e}")
             all_files_after = os.listdir(out_dir)
-            print(f"[DEBUG] Files in output directory after deletion: {all_files_after}")
+            logging.debug(f"Files in output directory after deletion: {all_files_after}")
 
         elapsed_time = self.time_label.text().split(" | ")[0]
         QMessageBox.information(self, "All files completed", f"All files completed in {elapsed_time}")
@@ -739,7 +745,7 @@ class MainWindow(QMainWindow):
     def on_core_error(self, message: str):
         self.synth_running = False
         self.start_btn.setText("Start Synthesis")
-        print(f"Error: {message}")
+        logging.error(f"Error: {message}")
         QMessageBox.critical(self, "Error", message)
 
     def set_task_label(self, task: str):
@@ -770,12 +776,12 @@ class MainWindow(QMainWindow):
         if speed and speed != 1.0:
             cmd += ["--speed", str(speed)]
         cli_command = " ".join(cmd)
-        print(f"cli_command: {cli_command}")
+        logging.info(f"cli_command: {cli_command}")
         try:
             with open("last_cli_command.txt", "w", encoding="utf-8") as f:
                 f.write(cli_command + "\n")
         except Exception as e:
-            print(f"Failed to write CLI command: {e}")
+            logging.error(f"Failed to write CLI command: {e}")
         return cli_command
 
 from PyQt6.QtCore import pyqtSignal
@@ -785,7 +791,7 @@ class BatchWorker(QThread):
     chapter_progress = pyqtSignal(object)  # stats object from core
     finished = pyqtSignal()
 
-    def __init__(self, selected_files, output_dir, ignore_list, wav_path, repetition_penalty, min_p, top_p, exaggeration, cfg_weight, temperature):
+    def __init__(self, selected_files, output_dir, ignore_list, wav_path, repetition_penalty, min_p, top_p, exaggeration, cfg_weight, temperature, enable_silence_trimming, silence_thresh, min_silence_len, keep_silence):
         super().__init__()
         self.selected_files = selected_files
         self.output_dir = output_dir
@@ -797,12 +803,16 @@ class BatchWorker(QThread):
         self.exaggeration = exaggeration
         self.cfg_weight = cfg_weight
         self.temperature = temperature
+        self.enable_silence_trimming = enable_silence_trimming
+        self.silence_thresh = silence_thresh
+        self.min_silence_len = min_silence_len
+        self.keep_silence = keep_silence
         self._should_stop = False
         self.completed = 0
         self.current_file_progress = 0.0
 
     def stop(self):
-        print("[DEBUG] BatchWorker.stop() called")
+        logging.debug("BatchWorker.stop() called")
         self._should_stop = True
 
     def run(self):
@@ -821,7 +831,7 @@ class BatchWorker(QThread):
 
         for file_path in self.selected_files:
             if self._should_stop:
-                print("[DEBUG] BatchWorker.run() detected stop, breaking batch loop")
+                logging.debug("BatchWorker.run() detected stop, breaking batch loop")
                 break
             
             self.current_file_progress = 0.0
@@ -870,7 +880,11 @@ class BatchWorker(QThread):
                 top_p=self.top_p,
                 exaggeration=self.exaggeration,
                 cfg_weight=self.cfg_weight,
-                temperature=self.temperature
+                temperature=self.temperature,
+                enable_silence_trimming=self.enable_silence_trimming,
+                silence_thresh=self.silence_thresh,
+                min_silence_len=self.min_silence_len,
+                keep_silence=self.keep_silence,
             )
             self.completed += 1
             now = time.time()
@@ -951,7 +965,7 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.setMinimumWidth(400)
-        self.settings = QSettings("chatterblez", "chatterblez-pyqt")
+        self.settings = QSettings("Chatterblez", "chatterblez-pyqt")
 
         layout = QVBoxLayout(self)
 
@@ -1197,6 +1211,14 @@ class BatchFilesPanel(QWidget):
 
 
 def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - [%(module)s:%(lineno)d] - %(message)s',
+        handlers=[
+            logging.FileHandler("logs/app.log"),
+            logging.StreamHandler()
+        ]
+    )
     app = QApplication(sys.argv)
     win = MainWindow()
     win.show()
