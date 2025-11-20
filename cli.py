@@ -106,7 +106,7 @@ if __name__ == '__main__':
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler("logs/app.log"),
+            logging.FileHandler("logs/app.log", encoding='utf-8'),
             logging.StreamHandler()
         ]
     )

@@ -356,7 +356,7 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - [%(module)s:%(lineno)d] - %(message)s',
         handlers=[
-            logging.FileHandler("logs/app.log"),
+            logging.FileHandler("logs/app.log", encoding='utf-8'),
             logging.StreamHandler()
         ]
     )
