@@ -987,7 +987,7 @@ class SettingsDialog(QDialog):
         model_layout = QVBoxLayout(model_group)
 
         # Repetition Penalty
-        self.repetition_penalty_label = QLabel(f"Repetition Penalty: {self.settings.value('repetition_penalty', 1.2, type=float)}")
+        self.repetition_penalty_label = QLabel(f"Repetition Penalty: {self.settings.value('repetition_penalty', 1.1, type=float)}")
         model_layout.addWidget(self.repetition_penalty_label)
         self.repetition_penalty_slider = QSlider(Qt.Orientation.Horizontal)
         self.repetition_penalty_slider.setRange(-10, 20)
@@ -996,7 +996,7 @@ class SettingsDialog(QDialog):
         model_layout.addWidget(self.repetition_penalty_slider)
 
         # Min P
-        self.min_p_label = QLabel(f"Min P: {self.settings.value('min_p', 0.05, type=float)}")
+        self.min_p_label = QLabel(f"Min P: {self.settings.value('min_p', 0.02, type=float)}")
         model_layout.addWidget(self.min_p_label)
         self.min_p_slider = QSlider(Qt.Orientation.Horizontal)
         self.min_p_slider.setRange(0, 100)
@@ -1005,7 +1005,7 @@ class SettingsDialog(QDialog):
         model_layout.addWidget(self.min_p_slider)
 
         # Top P
-        self.top_p_label = QLabel(f"Top P: {self.settings.value('top_p', 1.0, type=float)}")
+        self.top_p_label = QLabel(f"Top P: {self.settings.value('top_p', 0.95, type=float)}")
         model_layout.addWidget(self.top_p_label)
         self.top_p_slider = QSlider(Qt.Orientation.Horizontal)
         self.top_p_slider.setRange(0, 100)
@@ -1014,7 +1014,7 @@ class SettingsDialog(QDialog):
         model_layout.addWidget(self.top_p_slider)
 
         # Exaggeration
-        self.exaggeration_label = QLabel(f"Exaggeration: {self.settings.value('exaggeration', 0.5, type=float)}")
+        self.exaggeration_label = QLabel(f"Exaggeration: {self.settings.value('exaggeration', 0.4, type=float)}")
         model_layout.addWidget(self.exaggeration_label)
         self.exaggeration_slider = QSlider(Qt.Orientation.Horizontal)
         self.exaggeration_slider.setRange(0, 100)
@@ -1023,7 +1023,7 @@ class SettingsDialog(QDialog):
         model_layout.addWidget(self.exaggeration_slider)
 
         # CFG Weight
-        self.cfg_weight_label = QLabel(f"CFG Weight: {self.settings.value('cfg_weight', 0.5, type=float)}")
+        self.cfg_weight_label = QLabel(f"CFG Weight: {self.settings.value('cfg_weight', 0.8, type=float)}")
         model_layout.addWidget(self.cfg_weight_label)
         self.cfg_weight_slider = QSlider(Qt.Orientation.Horizontal)
         self.cfg_weight_slider.setRange(0, 100)
@@ -1032,7 +1032,7 @@ class SettingsDialog(QDialog):
         model_layout.addWidget(self.cfg_weight_slider)
 
         # Temperature
-        self.temperature_label = QLabel(f"Temperature: {self.settings.value('temperature', 0.8, type=float)}")
+        self.temperature_label = QLabel(f"Temperature: {self.settings.value('temperature', 0.85, type=float)}")
         model_layout.addWidget(self.temperature_label)
         self.temperature_slider = QSlider(Qt.Orientation.Horizontal)
         self.temperature_slider.setRange(0, 100)
@@ -1093,25 +1093,25 @@ class SettingsDialog(QDialog):
 
     def reset_to_defaults(self):
         # Reset all settings to their default values
-        self.settings.setValue("repetition_penalty", 1.2)
-        self.settings.setValue("min_p", 0.05)
-        self.settings.setValue("top_p", 1.0)
-        self.settings.setValue("exaggeration", 0.5)
-        self.settings.setValue("cfg_weight", 0.5)
-        self.settings.setValue("temperature", 0.8)
+        self.settings.setValue("repetition_penalty", 1.1)
+        self.settings.setValue("min_p", 0.02)
+        self.settings.setValue("top_p", 0.95)
+        self.settings.setValue("exaggeration", 0.4)
+        self.settings.setValue("cfg_weight", 0.8)
+        self.settings.setValue("temperature", 0.85)
 
         # Update the UI elements to reflect the new values
-        self.update_repetition_penalty(12)
+        self.update_repetition_penalty(11)
         self.repetition_penalty_slider.setValue(12)
-        self.update_min_p(5)
+        self.update_min_p(2)
         self.min_p_slider.setValue(5)
-        self.update_top_p(100)
+        self.update_top_p(95)
         self.top_p_slider.setValue(100)
-        self.update_exaggeration(50)
+        self.update_exaggeration(40)
         self.exaggeration_slider.setValue(50)
-        self.update_cfg_weight(50)
+        self.update_cfg_weight(80)
         self.cfg_weight_slider.setValue(50)
-        self.update_temperature(80)
+        self.update_temperature(85)
         self.temperature_slider.setValue(80)
 
     def save_chapter_names(self, text):
@@ -1219,6 +1219,7 @@ def main():
             logging.StreamHandler()
         ]
     )
+    logging.getLogger('chatterbox').setLevel(logging.WARNING)
     app = QApplication(sys.argv)
     win = MainWindow()
     win.show()

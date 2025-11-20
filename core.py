@@ -344,7 +344,7 @@ def clean_line(line: str) -> str:
     return line.strip()
 def main(file_path, pick_manually, speed, book_year='', output_folder='.',
          max_chapters=None, max_sentences=None, selected_chapters=None, post_event=None, audio_prompt_wav=None, batch_files=None, ignore_list=None, should_stop=None,
-         repetition_penalty=1.2, min_p=0.05, top_p=1.0, exaggeration=0.5, cfg_weight=0.5, temperature=0.8,
+         repetition_penalty=1.1, min_p=0.02, top_p=0.95, exaggeration=0.4, cfg_weight=0.8, temperature=0.85,
          enable_silence_trimming=False, silence_thresh=-50, min_silence_len=500, keep_silence=100):
     """
     Main entry point for audiobook synthesis.
@@ -360,6 +360,7 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
             logging.StreamHandler()
         ]
     )
+    logging.getLogger('chatterbox').setLevel(logging.WARNING)
     params = {
         "repetition_penalty":repetition_penalty,
         "min_p":min_p,

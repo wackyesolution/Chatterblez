@@ -21,6 +21,14 @@ def cli_main():
     parser.add_argument('--speed', type=float, default=1.0, help='Speech speed (default: 1.0)')
     parser.add_argument('--cuda', default=True, help='Use GPU via Cuda in Torch if available', action='store_true')
 
+    # Model parameters
+    parser.add_argument('--repetition-penalty', type=float, default=1.1, help='Repetition penalty (default: 1.1)')
+    parser.add_argument('--min-p', type=float, default=0.02, help='Min P for sampling (default: 0.02)')
+    parser.add_argument('--top-p', type=float, default=0.95, help='Top P for sampling (default: 0.95)')
+    parser.add_argument('--exaggeration', type=float, default=0.4, help='Exaggeration factor (default: 0.4)')
+    parser.add_argument('--cfg-weight', type=float, default=0.8, help='CFG weight (default: 0.8)')
+    parser.add_argument('--temperature', type=float, default=0.85, help='Temperature for sampling (default: 0.85)')
+
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
         sys.exit(1)
@@ -83,7 +91,13 @@ def cli_main():
             output_folder=output_folder,
             batch_files=batch_files,
             ignore_list=ignore_list,
-            audio_prompt_wav=audio_prompt_wav
+            audio_prompt_wav=audio_prompt_wav,
+            repetition_penalty=args.repetition_penalty,
+            min_p=args.min_p,
+            top_p=args.top_p,
+            exaggeration=args.exaggeration,
+            cfg_weight=args.cfg_weight,
+            temperature=args.temperature
         )
     # Single file mode
     elif args.file:
@@ -98,7 +112,13 @@ def cli_main():
             output_folder=output_folder,
             batch_files=None,
             ignore_list=ignore_list,
-            audio_prompt_wav=audio_prompt_wav
+            audio_prompt_wav=audio_prompt_wav,
+            repetition_penalty=args.repetition_penalty,
+            min_p=args.min_p,
+            top_p=args.top_p,
+            exaggeration=args.exaggeration,
+            cfg_weight=args.cfg_weight,
+            temperature=args.temperature
         )
 
 if __name__ == '__main__':
@@ -110,4 +130,5 @@ if __name__ == '__main__':
             logging.StreamHandler()
         ]
     )
+    logging.getLogger('chatterbox').setLevel(logging.WARNING)
     cli_main()
