@@ -554,8 +554,8 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
             logging.info(f'Skipping empty chapter {i}')
             chapter_wav_files.remove(chapter_wav_path)
             continue
-        if i == 1:
-            text = f'{title} – {creator}.\n\n' + text
+
+        logging.info(f'Writing  {text}')
         start_time = time.time()
         if post_event and hasattr(chapter, "chapter_index"):
             post_event('CORE_CHAPTER_STARTED', chapter_index=chapter.chapter_index)

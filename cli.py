@@ -3,9 +3,12 @@ import argparse
 import logging
 import sys
 import os
+import time
 from pathlib import Path
 
 def cli_main():
+    start_time = time.time() # Start timer
+
     parser = argparse.ArgumentParser(
         description="Chatterblez  CLI - Convert EPUB/PDF to Audiobook",
         formatter_class=argparse.RawDescriptionHelpFormatter
@@ -13,13 +16,18 @@ def cli_main():
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--file', '-f', help='Path to a single EPUB or PDF file')
     group.add_argument('--batch', '-b', help='Path to a folder containing EPUB/PDF files for batch processing')
-    group.add_argument('--remove-silence', '-rs', help='Path to an M4B file to remove silence from')
 
     parser.add_argument('-o', '--output', default='.', help='Output folder for the audiobook and temporary files', metavar='FOLDER')
     parser.add_argument('--filterlist', help='Comma-separated list of chapter names to ignore (case-insensitive substring match)')
     parser.add_argument('--wav', help='Path to a WAV file for voice conditioning (audio prompt)')
     parser.add_argument('--speed', type=float, default=1.0, help='Speech speed (default: 1.0)')
     parser.add_argument('--cuda', default=True, help='Use GPU via Cuda in Torch if available', action='store_true')
+
+    # Silence trimming parameters
+    parser.add_argument('--enable-silence-trimming', action='store_true', help='Enable silence trimming on the generated audio chapters.')
+    parser.add_argument('--silence-thresh', type=int, default=-50, help='The upper bound for what is considered silence in dBFS.')
+    parser.add_argument('--min-silence-len', type=int, default=500, help='The minimum length of a silence in milliseconds.')
+    parser.add_argument('--keep-silence', type=int, default=100, help='The amount of silence to leave at the beginning and end of the trimmed audio.')
 
     # Model parameters
     parser.add_argument('--repetition-penalty', type=float, default=1.1, help='Repetition penalty (default: 1.1)')
@@ -42,7 +50,7 @@ def cli_main():
         else:
             logging.info('CUDA GPU not available. Defaulting to CPU')
 
-    from core import main, remove_silence_from_audio
+    from core import main
 
     # Prepare ignore_list
     ignore_list = [s.strip() for s in args.filterlist.split(',')] if args.filterlist else None
@@ -57,23 +65,13 @@ def cli_main():
     # Prepare speed
     speed = args.speed
 
-    if args.remove_silence:
-        input_file = Path(args.remove_silence)
-        if not input_file.is_file():
-            logging.error(f"Input file does not exist: {input_file}")
-            sys.exit(1)
-        
-        output_file = Path(output_folder) / f"{input_file.stem}"
-        if output_file.suffix.lower() != '.m4b':
-            output_file = output_file.with_suffix('.m4b')
-        remove_silence_from_audio(str(input_file), str(output_file))
-        sys.exit(0)
-
     # Batch mode
     if args.batch:
         folder = Path(args.batch)
         if not folder.is_dir():
             logging.error(f"Batch folder does not exist: {folder}")
+            elapsed_time = time.time() - start_time
+            logging.info(f"Script finished in {elapsed_time:.2f} seconds")
             sys.exit(1)
         supported_exts = [".epub", ".pdf"]
         batch_files = [
@@ -83,6 +81,8 @@ def cli_main():
         ]
         if not batch_files:
             logging.error("No supported files (.epub, .pdf) found in the selected folder.")
+            elapsed_time = time.time() - start_time
+            logging.info(f"Script finished in {elapsed_time:.2f} seconds")
             sys.exit(1)
         main(
             file_path=None,
@@ -97,13 +97,19 @@ def cli_main():
             top_p=args.top_p,
             exaggeration=args.exaggeration,
             cfg_weight=args.cfg_weight,
-            temperature=args.temperature
+            temperature=args.temperature,
+            enable_silence_trimming=args.enable_silence_trimming,
+            silence_thresh=args.silence_thresh,
+            min_silence_len=args.min_silence_len,
+            keep_silence=args.keep_silence
         )
     # Single file mode
     elif args.file:
         file_path = args.file
         if not os.path.isfile(file_path):
             logging.error(f"File does not exist: {file_path}")
+            elapsed_time = time.time() - start_time
+            logging.info(f"Script finished in {elapsed_time:.2f} seconds")
             sys.exit(1)
         main(
             file_path=file_path,
@@ -118,8 +124,14 @@ def cli_main():
             top_p=args.top_p,
             exaggeration=args.exaggeration,
             cfg_weight=args.cfg_weight,
-            temperature=args.temperature
+            temperature=args.temperature,
+            enable_silence_trimming=args.enable_silence_trimming,
+            silence_thresh=args.silence_thresh,
+            min_silence_len=args.min_silence_len,
+            keep_silence=args.keep_silence
         )
+    elapsed_time = time.time() - start_time
+    logging.info(f"Script finished in {elapsed_time:.2f} seconds")
 
 if __name__ == '__main__':
     logging.basicConfig(
