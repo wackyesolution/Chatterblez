@@ -1000,7 +1000,7 @@ class SettingsDialog(QDialog):
         model_layout.addWidget(self.min_p_label)
         self.min_p_slider = QSlider(Qt.Orientation.Horizontal)
         self.min_p_slider.setRange(0, 100)
-        self.min_p_slider.setValue(int(self.settings.value('min_p', 0.05, type=float) * 100))
+        self.min_p_slider.setValue(int(self.settings.value('min_p', 0.1, type=float) * 100))
         self.min_p_slider.valueChanged.connect(self.update_min_p)
         model_layout.addWidget(self.min_p_slider)
 
@@ -1009,7 +1009,7 @@ class SettingsDialog(QDialog):
         model_layout.addWidget(self.top_p_label)
         self.top_p_slider = QSlider(Qt.Orientation.Horizontal)
         self.top_p_slider.setRange(0, 100)
-        self.top_p_slider.setValue(int(self.settings.value('top_p', 1.0, type=float) * 100))
+        self.top_p_slider.setValue(int(self.settings.value('top_p', 0.95, type=float) * 100))
         self.top_p_slider.valueChanged.connect(self.update_top_p)
         model_layout.addWidget(self.top_p_slider)
 
@@ -1018,7 +1018,7 @@ class SettingsDialog(QDialog):
         model_layout.addWidget(self.exaggeration_label)
         self.exaggeration_slider = QSlider(Qt.Orientation.Horizontal)
         self.exaggeration_slider.setRange(0, 100)
-        self.exaggeration_slider.setValue(int(self.settings.value('exaggeration', 0.5, type=float) * 100))
+        self.exaggeration_slider.setValue(int(self.settings.value('exaggeration', 0.35, type=float) * 100))
         self.exaggeration_slider.valueChanged.connect(self.update_exaggeration)
         model_layout.addWidget(self.exaggeration_slider)
 
@@ -1027,7 +1027,7 @@ class SettingsDialog(QDialog):
         model_layout.addWidget(self.cfg_weight_label)
         self.cfg_weight_slider = QSlider(Qt.Orientation.Horizontal)
         self.cfg_weight_slider.setRange(0, 100)
-        self.cfg_weight_slider.setValue(int(self.settings.value('cfg_weight', 0.5, type=float) * 100))
+        self.cfg_weight_slider.setValue(int(self.settings.value('cfg_weight', 0.4, type=float) * 100))
         self.cfg_weight_slider.valueChanged.connect(self.update_cfg_weight)
         model_layout.addWidget(self.cfg_weight_slider)
 
@@ -1036,7 +1036,7 @@ class SettingsDialog(QDialog):
         model_layout.addWidget(self.temperature_label)
         self.temperature_slider = QSlider(Qt.Orientation.Horizontal)
         self.temperature_slider.setRange(0, 100)
-        self.temperature_slider.setValue(int(self.settings.value('temperature', 0.8, type=float) * 100))
+        self.temperature_slider.setValue(int(self.settings.value('temperature', 0.65, type=float) * 100))
         self.temperature_slider.valueChanged.connect(self.update_temperature)
         model_layout.addWidget(self.temperature_slider)
 
@@ -1092,27 +1092,26 @@ class SettingsDialog(QDialog):
         self.settings.setValue("keep_silence", self.keep_silence_spinbox.value())
 
     def reset_to_defaults(self):
-        # Reset all settings to their default values
-        self.settings.setValue("repetition_penalty", 1.1)
-        self.settings.setValue("min_p", 0.02)
-        self.settings.setValue("top_p", 0.95)
-        self.settings.setValue("exaggeration", 0.4)
-        self.settings.setValue("cfg_weight", 0.8)
-        self.settings.setValue("temperature", 0.85)
+        # Reset all settings to their default values from QSettings
+        self.repetition_penalty_slider.setValue(int(self.settings.value('repetition_penalty', 1.1, type=float) * 10))
+        self.min_p_slider.setValue(int(self.settings.value('min_p', 0.02, type=float) * 100))
+        self.top_p_slider.setValue(int(self.settings.value('top_p', 0.95, type=float) * 100))
+        self.exaggeration_slider.setValue(int(self.settings.value('exaggeration', 0.4, type=float) * 100))
+        self.cfg_weight_slider.setValue(int(self.settings.value('cfg_weight', 0.8, type=float) * 100))
+        self.temperature_slider.setValue(int(self.settings.value('temperature', 0.85, type=float) * 100))
 
-        # Update the UI elements to reflect the new values
-        self.update_repetition_penalty(11)
-        self.repetition_penalty_slider.setValue(12)
-        self.update_min_p(2)
-        self.min_p_slider.setValue(5)
-        self.update_top_p(95)
-        self.top_p_slider.setValue(100)
-        self.update_exaggeration(40)
-        self.exaggeration_slider.setValue(50)
-        self.update_cfg_weight(80)
-        self.cfg_weight_slider.setValue(50)
-        self.update_temperature(85)
-        self.temperature_slider.setValue(80)
+        self.enable_trim_checkbox.setChecked(self.settings.value("enable_silence_trimming", False, type=bool))
+        self.silence_thresh_spinbox.setValue(self.settings.value("silence_thresh", -50, type=float))
+        self.min_silence_len_spinbox.setValue(self.settings.value("min_silence_len", 500, type=int))
+        self.keep_silence_spinbox.setValue(self.settings.value("keep_silence", 100, type=int))
+
+        # Update labels to reflect the loaded values
+        self.update_repetition_penalty(self.repetition_penalty_slider.value())
+        self.update_min_p(self.min_p_slider.value())
+        self.update_top_p(self.top_p_slider.value())
+        self.update_exaggeration(self.exaggeration_slider.value())
+        self.update_cfg_weight(self.cfg_weight_slider.value())
+        self.update_temperature(self.temperature_slider.value())
 
     def save_chapter_names(self, text):
         self.settings.setValue("batch_ignore_chapter_names", text)

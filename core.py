@@ -661,6 +661,68 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
     allow_sleep()
 
 
+
+def batch_sentences_intelligently(sentences, min_chars=150, max_chars=800):
+    """
+    Batch sentences into reasonable chunks for TTS processing.
+
+    OPTIMIZED FOR SPEED: Larger batches (150-800 chars) = fewer TTS calls
+
+    Args:
+        sentences: List of spacy sentence objects
+        min_chars: Minimum characters per batch (default 150, increased for speed)
+        max_chars: Maximum characters per batch (default 800, increased for speed)
+
+    Returns:
+        List of batched sentence texts
+    """
+    batches = []
+    current_batch = []
+    current_length = 0
+
+    for sent in sentences:
+        sent_text = sent.text.strip()
+        sent_length = len(sent_text)
+
+        # Skip empty sentences
+        if not sent_text or sent_length < 2:
+            continue
+
+        # If this sentence alone exceeds max_chars, add it as its own batch
+        if sent_length > max_chars:
+            # First, flush current batch if it exists
+            if current_batch:
+                batches.append(' '.join(current_batch))
+                current_batch = []
+                current_length = 0
+
+            # Add the long sentence as its own batch
+            batches.append(sent_text)
+            continue
+
+        # If adding this sentence would exceed max_chars, start a new batch
+        if current_length > 0 and (current_length + sent_length + 1) > max_chars:
+            batches.append(' '.join(current_batch))
+            current_batch = [sent_text]
+            current_length = sent_length
+        else:
+            # Add to current batch
+            current_batch.append(sent_text)
+            current_length += sent_length + (1 if current_batch else 0)  # +1 for space
+
+        # If we've reached a good minimum size and hit a natural break, flush
+        if current_length >= min_chars and sent_text.endswith(('.', '!', '?', '"', "'")):
+            batches.append(' '.join(current_batch))
+            current_batch = []
+            current_length = 0
+
+    # Don't forget the last batch
+    if current_batch:
+        batches.append(' '.join(current_batch))
+
+    return batches
+
+
 def find_cover(book):
     def is_image(item):
         return item is not None and item.media_type.startswith('image/')
@@ -700,16 +762,44 @@ def gen_audio_segments(cb_model, nlp, text, speed, stats=None, max_sentences=Non
     audio_segments = []
     doc = nlp(text)
     sentences = list(doc.sents)
-    for i, sent in enumerate(sentences):
+    batch_min_chars=150
+    batch_max_chars=800
+    num_candidates=3
+    # Then batch sentences intelligently
+    batches = batch_sentences_intelligently(
+        sentences,
+        min_chars=batch_min_chars,
+        max_chars=batch_max_chars
+    )
+
+    total_batches = len(batches)
+    logging.info(f"Split {len(sentences)} sentences into {total_batches} batches")
+
+    # Show some batch examples
+    for i, batch in enumerate(batches[:3]):
+        logging.info(f"  Batch {i + 1} ({len(batch)} chars): {batch[:80]}{'...' if len(batch) > 80 else ''}")
+    if total_batches > 3:
+        logging.info(f"  ... and {total_batches - 3} more batches")
+
+    for i, batch_text in enumerate(batches):
         if should_stop():
-            logging.info("Synthesis interrupted by user (sentence loop).")
+            logging.info("Synthesis interrupted by user (batch loop).")
             return audio_segments
-        if max_sentences and i > max_sentences: break
-        # ChatterboxTTS does not use speed param, but keep for compatibility
-        wav = cb_model.generate(sent.text, repetition_penalty=repetition_penalty, min_p=min_p, top_p=top_p, exaggeration=exaggeration, cfg_weight=cfg_weight, temperature=temperature)
+        if max_sentences and i >= max_sentences:
+            break
+
+        batch_text = batch_text.strip()
+        if not batch_text:
+            continue
+
+
+        wav = cb_model.generate(batch_text, repetition_penalty=repetition_penalty, min_p=min_p, top_p=top_p,
+                                exaggeration=exaggeration, cfg_weight=cfg_weight, temperature=temperature)
         audio_segments.append(wav.numpy().flatten())
+
+        # Update statistics based on batch size
         if stats:
-            update_stats(stats, len(sent.text))
+            update_stats(stats, len(batch_text))
             if post_event:
                 post_event('CORE_PROGRESS', stats=stats)
     return audio_segments
