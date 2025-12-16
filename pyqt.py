@@ -43,9 +43,11 @@ from PyQt6.QtWidgets import (
     QDoubleSpinBox,
     QGroupBox,
     QFormLayout,
+    QComboBox,
 )
 
 import core
+from chatterbox.mtl_tts import ChatterboxMultilingualTTS
 
 
 class CoreThread(QThread):
@@ -91,6 +93,10 @@ class CoreThread(QThread):
 # Move open_file_dialog back to MainWindow
     # ----------------- Menu slots -----------------
 class MainWindow(QMainWindow):
+    message_signal = pyqtSignal(str, str, str)
+    preview_button_signal = pyqtSignal(str)
+    test_voice_finished = pyqtSignal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Chatterblez – Audiobook Generator")
@@ -104,6 +110,20 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self.synth_running = False
+        self.message_signal.connect(self._show_message_box)
+        self.preview_button_signal.connect(self.preview_btn.setText)
+        self.test_voice_finished.connect(self.on_test_voice_finished)
+        self.device_preference = "auto"
+        try:
+            self.device = core.choose_device(self.device_preference)
+            logging.info(f"Selected compute device: {self.device}")
+            if self.device in ("cuda", "mps"):
+                import torch
+                torch.set_default_device(self.device)
+        except Exception as exc:
+            logging.error(f"Device selection failed: {exc}")
+            self.device = "cpu"
+            self.message_signal.emit("warning", "Device fallback", f"{exc}\nFalling back to CPU.")
 
         wav_path = self.settings.value("selected_wav_path", "", type=str)
         if wav_path:
@@ -114,6 +134,16 @@ class MainWindow(QMainWindow):
             self.output_dir_edit.setText(output_folder)
 
         # ----------------- UI BUILD -----------------
+
+    def _show_message_box(self, level, title, text):
+        if level == "info":
+            QMessageBox.information(self, title, text)
+        elif level == "warning":
+            QMessageBox.warning(self, title, text)
+        elif level == "critical":
+            QMessageBox.critical(self, title, text)
+        else:
+            QMessageBox.information(self, title, text)
 
     def _build_ui(self):
         # Menu
@@ -175,6 +205,9 @@ class MainWindow(QMainWindow):
 
         # Text edit
         self.text_edit = QTextEdit()
+        self._updating_text_edit = False
+        self.current_chapter_index = None
+        self.text_edit.textChanged.connect(self.on_text_edit_changed)
         right_layout.addWidget(self.text_edit)
 
         # Controls pane
@@ -188,6 +221,10 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.preview_btn)
         self.preview_thread = None
         self.preview_stop_flag = threading.Event()
+        self.test_voice_btn = QPushButton("Test Voice")
+        self.test_voice_btn.clicked.connect(self.handle_test_voice_button)
+        controls_layout.addWidget(self.test_voice_btn)
+        self.test_voice_thread = None
 
         # WAV button
         self.wav_button = QPushButton("Select Voice WAV")
@@ -407,10 +444,24 @@ class MainWindow(QMainWindow):
             if 0 <= i < len(self.document_chapters):
                 self.document_chapters[i].is_selected = False
 
+    def on_text_edit_changed(self):
+        if self._updating_text_edit:
+            return
+        if self.current_chapter_index is None:
+            return
+        if not (0 <= self.current_chapter_index < len(self.document_chapters)):
+            return
+        self.document_chapters[self.current_chapter_index].extracted_text = self.text_edit.toPlainText()
+
     def on_chapter_selected(self):
         row = self.chapter_list.currentRow()
         if 0 <= row < len(self.document_chapters):
+            self.current_chapter_index = row
+            self._updating_text_edit = True
             self.text_edit.setPlainText(self.document_chapters[row].extracted_text)
+            self._updating_text_edit = False
+        else:
+            self.current_chapter_index = None
 
     def handle_preview_button(self):
         if self.preview_thread and self.preview_thread.is_alive():
@@ -434,8 +485,8 @@ class MainWindow(QMainWindow):
             row = self.chapter_list.currentRow()
             if not (0 <= row < len(self.document_chapters)):
                 logging.warning("Preview Unavailable: No chapter selected.")
-                QMessageBox.information(self, "Preview Unavailable", "No chapter selected.")
-                self.preview_btn.setText("Preview")
+                self.message_signal.emit("info", "Preview Unavailable", "No chapter selected.")
+                self.preview_button_signal.emit("Preview")
                 return
             chapter = self.document_chapters[row]
             text = chapter.extracted_text[:1000]
@@ -448,11 +499,11 @@ class MainWindow(QMainWindow):
             text = "\n".join(cleaned_lines)
             if not text.strip():
                 logging.warning("Preview Unavailable: No text to preview.")
-                QMessageBox.information(self, "Preview Unavailable", "No text to preview.")
-                self.preview_btn.setText("Preview")
+                self.message_signal.emit("info", "Preview Unavailable", "No text to preview.")
+                self.preview_button_signal.emit("Preview")
                 return
 
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            device = getattr(self, "device", "cpu")
             cb_model = ChatterboxTTS.from_pretrained(device=device)
             if self.selected_wav_path:
                 cb_model.prepare_conditionals(wav_fpath=self.selected_wav_path)
@@ -480,9 +531,85 @@ class MainWindow(QMainWindow):
                         subprocess.Popen(["aplay", tmpf.name])
         except Exception as e:
             logging.error(f"Preview Error: {e}")
-            QMessageBox.critical(self, "Preview Error", f"Preview failed: {e}")
+            self.message_signal.emit("critical", "Preview Error", f"Preview failed: {e}")
         finally:
-            self.preview_btn.setText("Preview")
+            self.preview_button_signal.emit("Preview")
+
+    def handle_test_voice_button(self):
+        if self.test_voice_thread and self.test_voice_thread.is_alive():
+            self.message_signal.emit("info", "Test Voice", "A test is already running.")
+            return
+        self.test_voice_btn.setEnabled(False)
+        self.test_voice_btn.setText("Testing…")
+        self.test_voice_thread = threading.Thread(target=self.test_voice_thread_target)
+        self.test_voice_thread.start()
+
+    def test_voice_thread_target(self):
+        try:
+            from tempfile import NamedTemporaryFile
+            import torchaudio as ta
+            from chatterbox.tts import ChatterboxTTS
+            from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+
+            test_text = self.text_edit.toPlainText().strip() or "Ciao, questa è una prova per capire se funziona tutto. Se funziona puoi avviarlo con un libro pesante e divertirti."
+            device = getattr(self, "device", "cpu")
+            tts_mode = (self.settings.value("tts_mode", "standard", type=str) or "standard").lower()
+            language_id = (self.settings.value("language_id", "en", type=str) or "en").lower()
+            repetition_penalty = self.settings.value('repetition_penalty', 1.2, type=float)
+            min_p = self.settings.value('min_p', 0.05, type=float)
+            top_p = self.settings.value('top_p', 1.0, type=float)
+            exaggeration = self.settings.value('exaggeration', 0.5, type=float)
+            cfg_weight = self.settings.value('cfg_weight', 0.5, type=float)
+            temperature = self.settings.value('temperature', 0.8, type=float)
+
+            if tts_mode == "multilingual":
+                cb_model = ChatterboxMultilingualTTS.from_pretrained(device=device)
+            else:
+                cb_model = ChatterboxTTS.from_pretrained(device=device)
+
+            if self.selected_wav_path:
+                cb_model.prepare_conditionals(wav_fpath=self.selected_wav_path)
+
+            if tts_mode == "multilingual":
+                wav = cb_model.generate(
+                    test_text,
+                    language_id=language_id,
+                    repetition_penalty=repetition_penalty,
+                    min_p=min_p,
+                    top_p=top_p,
+                    exaggeration=exaggeration,
+                    cfg_weight=cfg_weight,
+                    temperature=temperature
+                )
+            else:
+                wav = cb_model.generate(
+                    test_text,
+                    repetition_penalty=repetition_penalty,
+                    min_p=min_p,
+                    top_p=top_p,
+                    exaggeration=exaggeration,
+                    cfg_weight=cfg_weight,
+                    temperature=temperature
+                )
+
+            with NamedTemporaryFile(suffix=".wav", delete=False) as tmpf:
+                ta.save(tmpf.name, wav, cb_model.sr)
+                tmpf.flush()
+                if platform.system() == "Windows":
+                    os.startfile(tmpf.name)
+                elif platform.system() == "Darwin":
+                    subprocess.Popen(["afplay", tmpf.name])
+                else:
+                    subprocess.Popen(["aplay", tmpf.name])
+        except Exception as exc:
+            logging.error(f"Test voice failed: {exc}")
+            self.message_signal.emit("critical", "Test Voice Failed", str(exc))
+        finally:
+            self.test_voice_finished.emit()
+
+    def on_test_voice_finished(self):
+        self.test_voice_btn.setEnabled(True)
+        self.test_voice_btn.setText("Test Voice")
 
     def select_wav(self):
         wav_path, _ = QFileDialog.getOpenFileName(
@@ -517,6 +644,8 @@ class MainWindow(QMainWindow):
                 chap.is_selected = item.checkState() == Qt.CheckState.Checked
 
             selected_chapters = [c for c in self.document_chapters if c.is_selected]
+            tts_mode = (self.settings.value('tts_mode', 'standard', type=str) or 'standard').lower()
+            language_id = (self.settings.value('language_id', 'en', type=str) or 'en').lower()
 
             if hasattr(self, "batch_files") and self.batch_files:
                 selected_files = [f["path"] for f in self.batch_files if f["selected"]]
@@ -534,7 +663,9 @@ class MainWindow(QMainWindow):
                     filterlist=ignore_csv,
                     wav_path=self.selected_wav_path,
                     speed=1.0,
-                    is_batch=True
+                    is_batch=True,
+                    tts_mode=tts_mode,
+                    language_id=language_id
                 )
 
                 # Batch progress bar and timer setup
@@ -551,6 +682,9 @@ class MainWindow(QMainWindow):
                     output_dir=self.output_dir_edit.text(),
                     ignore_list=ignore_list,
                     wav_path=self.selected_wav_path,
+                    device=self.device,
+                    tts_mode=tts_mode,
+                    language_id=language_id,
                     repetition_penalty=self.settings.value('repetition_penalty', 1.2, type=float),
                     min_p=self.settings.value('min_p', 0.05, type=float),
                     top_p=self.settings.value('top_p', 1.0, type=float),
@@ -586,7 +720,9 @@ class MainWindow(QMainWindow):
                 filterlist="",
                 wav_path=self.selected_wav_path,
                 speed=1.0,
-                is_batch=False
+                is_batch=False,
+                tts_mode=tts_mode,
+                language_id=language_id
             )
 
             logging.info("About to create CoreThread with params:")
@@ -597,6 +733,9 @@ class MainWindow(QMainWindow):
                 output_folder=self.output_dir_edit.text(),
                 selected_chapters=selected_chapters,
                 audio_prompt_wav=self.selected_wav_path,
+                device=self.device,
+                tts_mode=tts_mode,
+                language_id=language_id,
                 repetition_penalty=self.settings.value('repetition_penalty', 1.2, type=float),
                 min_p=self.settings.value('min_p', 0.05, type=float),
                 top_p=self.settings.value('top_p', 1.0, type=float),
@@ -752,7 +891,7 @@ class MainWindow(QMainWindow):
         """Set the current task label (e.g., Synthesizing, Transcoding, Multiplexing)."""
         self.task_label.setText(task)
 
-    def write_cli_command(self, file_path=None, batch_folder=None, output_folder=".", filterlist="", wav_path=None, speed=1.0, is_batch=False):
+    def write_cli_command(self, file_path=None, batch_folder=None, output_folder=".", filterlist="", wav_path=None, speed=1.0, is_batch=False, tts_mode='standard', language_id='en'):
         """
         Write the equivalent CLI command to last_cli_command.txt in the working directory.
         Returns the CLI command string.
@@ -775,6 +914,10 @@ class MainWindow(QMainWindow):
             cmd += ["--wav", f'"{to_posix(wav_path)}"']
         if speed and speed != 1.0:
             cmd += ["--speed", str(speed)]
+        if tts_mode and tts_mode != 'standard':
+            cmd += ["--tts-mode", tts_mode]
+        if language_id and language_id.lower() != 'en':
+            cmd += ["--language-id", language_id]
         cli_command = " ".join(cmd)
         logging.info(f"cli_command: {cli_command}")
         try:
@@ -791,12 +934,18 @@ class BatchWorker(QThread):
     chapter_progress = pyqtSignal(object)  # stats object from core
     finished = pyqtSignal()
 
-    def __init__(self, selected_files, output_dir, ignore_list, wav_path, repetition_penalty, min_p, top_p, exaggeration, cfg_weight, temperature, enable_silence_trimming, silence_thresh, min_silence_len, keep_silence):
+    def __init__(self, selected_files, output_dir, ignore_list, wav_path, device, tts_mode,
+                 repetition_penalty, min_p, top_p, exaggeration, cfg_weight, temperature,
+                 enable_silence_trimming, silence_thresh, min_silence_len, keep_silence,
+                 language_id='en'):
         super().__init__()
         self.selected_files = selected_files
         self.output_dir = output_dir
-        self.ignore_list = ignore_list
+        self.ignore_list = ignore_list or []
         self.wav_path = wav_path
+        self.device = device
+        self.tts_mode = (tts_mode or 'standard').lower()
+        self.language_id = (language_id or 'en').lower()
         self.repetition_penalty = repetition_penalty
         self.min_p = min_p
         self.top_p = top_p
@@ -875,6 +1024,9 @@ class BatchWorker(QThread):
                 audio_prompt_wav=self.wav_path if self.wav_path else None,
                 post_event=post_event,
                 should_stop=lambda: self._should_stop,
+                device=self.device,
+                tts_mode=self.tts_mode,
+                language_id=self.language_id,
                 repetition_penalty=self.repetition_penalty,
                 min_p=self.min_p,
                 top_p=self.top_p,
@@ -985,6 +1137,31 @@ class SettingsDialog(QDialog):
         # Model Settings
         model_group = QGroupBox("Model Settings")
         model_layout = QVBoxLayout(model_group)
+
+        # TTS mode selector
+        self.tts_mode_combo = QComboBox()
+        self.tts_mode_combo.addItem("Standard (English-only)", "standard")
+        self.tts_mode_combo.addItem("Multilingual (23 languages)", "multilingual")
+        current_mode = (self.settings.value("tts_mode", "standard", type=str) or "standard").lower()
+        idx = self.tts_mode_combo.findData(current_mode)
+        self.tts_mode_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self.tts_mode_combo.currentIndexChanged.connect(self.on_tts_mode_changed)
+        model_layout.addWidget(QLabel("Voice Model:"))
+        model_layout.addWidget(self.tts_mode_combo)
+
+        # Language selector (multilingual only)
+        self.language_combo = QComboBox()
+        languages = ChatterboxMultilingualTTS.get_supported_languages()
+        for code, name in sorted(languages.items(), key=lambda item: item[1]):
+            self.language_combo.addItem(f"{name} ({code})", code)
+        current_lang = (self.settings.value("language_id", "en", type=str) or "en").lower()
+        lang_idx = self.language_combo.findData(current_lang)
+        if lang_idx >= 0:
+            self.language_combo.setCurrentIndex(lang_idx)
+        self.language_combo.currentIndexChanged.connect(self.save_language_id)
+        model_layout.addWidget(QLabel("Language (multilingual):"))
+        model_layout.addWidget(self.language_combo)
+        self.language_combo.setEnabled(self.tts_mode_combo.currentData() == "multilingual")
 
         # Repetition Penalty
         self.repetition_penalty_label = QLabel(f"Repetition Penalty: {self.settings.value('repetition_penalty', 1.1, type=float)}")
@@ -1105,6 +1282,15 @@ class SettingsDialog(QDialog):
         self.min_silence_len_spinbox.setValue(self.settings.value("min_silence_len", 500, type=int))
         self.keep_silence_spinbox.setValue(self.settings.value("keep_silence", 100, type=int))
 
+        default_mode = (self.settings.value("tts_mode", "standard", type=str) or "standard").lower()
+        mode_idx = self.tts_mode_combo.findData(default_mode)
+        self.tts_mode_combo.setCurrentIndex(mode_idx if mode_idx >= 0 else 0)
+        default_lang = (self.settings.value("language_id", "en", type=str) or "en").lower()
+        lang_idx = self.language_combo.findData(default_lang)
+        if lang_idx >= 0:
+            self.language_combo.setCurrentIndex(lang_idx)
+        self.language_combo.setEnabled(self.tts_mode_combo.currentData() == "multilingual")
+
         # Update labels to reflect the loaded values
         self.update_repetition_penalty(self.repetition_penalty_slider.value())
         self.update_min_p(self.min_p_slider.value())
@@ -1115,6 +1301,16 @@ class SettingsDialog(QDialog):
 
     def save_chapter_names(self, text):
         self.settings.setValue("batch_ignore_chapter_names", text)
+
+    def on_tts_mode_changed(self, _index):
+        mode = self.tts_mode_combo.currentData()
+        self.settings.setValue("tts_mode", mode)
+        self.language_combo.setEnabled(mode == "multilingual")
+
+    def save_language_id(self, _index):
+        lang_code = self.language_combo.currentData()
+        if lang_code:
+            self.settings.setValue("language_id", lang_code)
 
     def update_repetition_penalty(self, value):
         val = value / 10.0

@@ -21,7 +21,12 @@ def cli_main():
     parser.add_argument('--filterlist', help='Comma-separated list of chapter names to ignore (case-insensitive substring match)')
     parser.add_argument('--wav', help='Path to a WAV file for voice conditioning (audio prompt)')
     parser.add_argument('--speed', type=float, default=1.0, help='Speech speed (default: 1.0)')
-    parser.add_argument('--cuda', default=True, help='Use GPU via Cuda in Torch if available', action='store_true')
+    parser.add_argument('--device', choices=['auto', 'cuda', 'mps', 'cpu'], default='auto',
+                        help='Select compute device (default: auto).')
+    parser.add_argument('--tts-mode', choices=['standard', 'multilingual'], default='standard',
+                        help='Choose between the default English model and the multilingual model.')
+    parser.add_argument('--language-id', default='en',
+                        help='Language code for multilingual synthesis (e.g. en, it, fr).')
 
     # Silence trimming parameters
     parser.add_argument('--enable-silence-trimming', action='store_true', help='Enable silence trimming on the generated audio chapters.')
@@ -42,15 +47,17 @@ def cli_main():
         sys.exit(1)
     args = parser.parse_args()
 
-    if args.cuda:
-        import torch.cuda
-        if torch.cuda.is_available():
-            logging.info('CUDA GPU available')
-            torch.set_default_device('cuda')
-        else:
-            logging.info('CUDA GPU not available. Defaulting to CPU')
+    from core import main, choose_device
 
-    from core import main
+    try:
+        device = choose_device(args.device)
+    except RuntimeError as exc:
+        logging.error(str(exc))
+        sys.exit(1)
+    logging.info(f'Using device: {device}')
+    if device in ('cuda', 'mps'):
+        import torch
+        torch.set_default_device(device)
 
     # Prepare ignore_list
     ignore_list = [s.strip() for s in args.filterlist.split(',')] if args.filterlist else None
@@ -92,6 +99,9 @@ def cli_main():
             batch_files=batch_files,
             ignore_list=ignore_list,
             audio_prompt_wav=audio_prompt_wav,
+            device=device,
+            tts_mode=args.tts_mode,
+            language_id=args.language_id,
             repetition_penalty=args.repetition_penalty,
             min_p=args.min_p,
             top_p=args.top_p,
@@ -119,6 +129,9 @@ def cli_main():
             batch_files=None,
             ignore_list=ignore_list,
             audio_prompt_wav=audio_prompt_wav,
+            device=device,
+            tts_mode=args.tts_mode,
+            language_id=args.language_id,
             repetition_penalty=args.repetition_penalty,
             min_p=args.min_p,
             top_p=args.top_p,

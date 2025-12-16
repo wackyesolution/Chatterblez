@@ -10,7 +10,7 @@ import sys
 import traceback
 from glob import glob
 
-import torch.cuda
+import torch
 import spacy
 import ebooklib
 import soundfile
@@ -34,8 +34,51 @@ from pydub import AudioSegment
 from pydub.silence import split_on_silence
 
 from functools import lru_cache
+from threading import RLock
+
+try:
+    import tqdm
+    if not hasattr(tqdm.tqdm, "_lock"):
+        tqdm.tqdm._lock = RLock()
+except Exception:
+    pass
 
 sample_rate = 24000
+
+def choose_device(preferred: str = "auto") -> str:
+    """
+    Select the best available torch device based on the preferred option.
+
+    Args:
+        preferred: 'auto', 'cuda', 'mps', or 'cpu'
+
+    Returns:
+        The device string to use with torch / ChatterboxTTS.
+
+    Raises:
+        RuntimeError: if the requested device is unavailable.
+    """
+    preferred = (preferred or "auto").lower()
+    def mps_available():
+        return hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
+
+    if preferred == "auto":
+        if torch.cuda.is_available():
+            return "cuda"
+        if mps_available():
+            return "mps"
+        return "cpu"
+    if preferred == "cuda":
+        if torch.cuda.is_available():
+            return "cuda"
+        raise RuntimeError("CUDA was requested but is not available on this system.")
+    if preferred == "mps":
+        if mps_available():
+            return "mps"
+        raise RuntimeError("MPS was requested but PyTorch was not built with MPS support.")
+    if preferred == "cpu":
+        return "cpu"
+    raise RuntimeError(f"Unknown device preference '{preferred}'. Expected auto/cuda/mps/cpu.")
 
 
 def remove_silence_from_audio(input_file, output_file, silence_thresh=-50, min_silence_len=1000, keep_silence=200):
@@ -344,6 +387,7 @@ def clean_line(line: str) -> str:
     return line.strip()
 def main(file_path, pick_manually, speed, book_year='', output_folder='.',
          max_chapters=None, max_sentences=None, selected_chapters=None, post_event=None, audio_prompt_wav=None, batch_files=None, ignore_list=None, should_stop=None,
+         device='auto', tts_mode='standard', language_id='en',
          repetition_penalty=1.1, min_p=0.02, top_p=0.95, exaggeration=0.4, cfg_weight=0.8, temperature=0.85,
          enable_silence_trimming=False, silence_thresh=-50, min_silence_len=500, keep_silence=100):
     """
@@ -361,6 +405,8 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
         ]
     )
     logging.getLogger('chatterbox').setLevel(logging.WARNING)
+    tts_mode = (tts_mode or 'standard').lower()
+    language_id = (language_id or 'en').lower()
     params = {
         "repetition_penalty":repetition_penalty,
         "min_p":min_p,
@@ -368,6 +414,8 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
         "exaggeration":exaggeration,
         "cfg_weight":cfg_weight,
         "temperature":temperature,
+        "tts_mode":tts_mode,
+        "language_id":language_id,
         "enable_silence_trimming":enable_silence_trimming,
         "silence_thresh":silence_thresh,
         "min_silence_len":min_silence_len,
@@ -379,6 +427,16 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
         logging.info(f"{key} = {value}")
     if should_stop is None:
         should_stop = lambda: False
+
+    try:
+        device = choose_device(device)
+    except RuntimeError as exc:
+        logging.error(str(exc))
+        if post_event:
+            post_event('CORE_ERROR', message=str(exc))
+        allow_sleep()
+        return
+    logging.info(f"Selected compute device: {device}")
 
     if batch_files is not None:
         # Sequentially process each file in batch_files
@@ -398,6 +456,9 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
                 batch_files=None,  # Prevent infinite recursion
                 ignore_list=ignore_list,
                 should_stop=should_stop,
+                device=device,
+                tts_mode=tts_mode,
+                language_id=language_id,
                 repetition_penalty=repetition_penalty,
                 min_p=min_p,
                 top_p=top_p,
@@ -497,7 +558,7 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
     stats = SimpleNamespace(
         total_chars=sum(map(len, texts)),
         processed_chars=0,
-        chars_per_sec=500 if torch.cuda.is_available() else 50,  # initial guess
+        chars_per_sec=500 if device != 'cpu' else 50,  # initial guess
         start_time=time.perf_counter(),
         eta='–',
         progress=0
@@ -511,10 +572,15 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
 
     import torchaudio as ta
     from chatterbox.tts import ChatterboxTTS
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    from chatterbox.mtl_tts import ChatterboxMultilingualTTS
     logging.info(f'running on device: {device}')
 
-    cb_model = ChatterboxTTS.from_pretrained(device=device)
+    if tts_mode == 'multilingual':
+        logging.info(f'Using Chatterbox multilingual TTS with language_id={language_id}')
+        cb_model = ChatterboxMultilingualTTS.from_pretrained(device=device)
+    else:
+        logging.info('Using Chatterbox standard English TTS model')
+        cb_model = ChatterboxTTS.from_pretrained(device=device)
 
     # If a custom audio prompt is provided, use it
     if audio_prompt_wav:
@@ -573,7 +639,9 @@ def main(file_path, pick_manually, speed, book_year='', output_folder='.',
             top_p=top_p,
             exaggeration=exaggeration,
             cfg_weight=cfg_weight,
-            temperature=temperature
+            temperature=temperature,
+            tts_mode=tts_mode,
+            language_id=language_id
         )
         if should_stop():
             logging.info("Synthesis interrupted by user (after audio_segments).")
@@ -754,7 +822,8 @@ def print_selected_chapters(document_chapters, chapters):
 
 
 def gen_audio_segments(cb_model, nlp, text, speed, stats=None, max_sentences=None,
-                       post_event=None, should_stop=None, repetition_penalty=1.2, min_p=0.05, top_p=1.0, exaggeration=0.5, cfg_weight=0.5, temperature=0.8):  # Use spacy to split into sentences
+                       post_event=None, should_stop=None, repetition_penalty=1.2, min_p=0.05, top_p=1.0, exaggeration=0.5, cfg_weight=0.5, temperature=0.8,
+                       tts_mode='standard', language_id='en'):  # Use spacy to split into sentences
 
     if should_stop is None:
         should_stop = lambda: False
@@ -793,8 +862,27 @@ def gen_audio_segments(cb_model, nlp, text, speed, stats=None, max_sentences=Non
             continue
 
 
-        wav = cb_model.generate(batch_text, repetition_penalty=repetition_penalty, min_p=min_p, top_p=top_p,
-                                exaggeration=exaggeration, cfg_weight=cfg_weight, temperature=temperature)
+        if tts_mode == 'multilingual':
+            wav = cb_model.generate(
+                batch_text,
+                language_id=language_id,
+                repetition_penalty=repetition_penalty,
+                min_p=min_p,
+                top_p=top_p,
+                exaggeration=exaggeration,
+                cfg_weight=cfg_weight,
+                temperature=temperature
+            )
+        else:
+            wav = cb_model.generate(
+                batch_text,
+                repetition_penalty=repetition_penalty,
+                min_p=min_p,
+                top_p=top_p,
+                exaggeration=exaggeration,
+                cfg_weight=cfg_weight,
+                temperature=temperature
+            )
         audio_segments.append(wav.numpy().flatten())
 
         # Update statistics based on batch size
@@ -1263,7 +1351,7 @@ def probe_duration(file_name):
 
 
 def create_index_file(title, creator, chapter_mp3_files, output_folder):
-    with open(Path(output_folder) / "chapters.txt", "w", encoding="ascii", newline="\n") as f:
+    with open(Path(output_folder) / "chapters.txt", "w", encoding="utf-8", newline="\n") as f:
         f.write(f";FFMETADATA1\ntitle={title}\nartist={creator}\n\n")
         start = 0
         i = 0

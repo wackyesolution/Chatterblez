@@ -1,0 +1,10 @@
+;FFMETADATA1
+title=L'atto creativo
+artist=Rick Rubin
+
+[CHAPTER]
+TIMEBASE=1/1000
+START=0
+END=155280
+title=Chapter 0
+

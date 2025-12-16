@@ -1,0 +1,1 @@
+python cli.py --file "/Users/danielsaan/Documents/EBOOK/Trading in the zone_ Domina il mercato con sicurezza, -- Mark Douglas -- 1, 1, 2021 -- Trading Library srl -- 9788896481882 -- e0d59e29b59ca530ce6c012b146e3e7c -- Anna’s Archive.pdf" --output "/Users/danielsaan/Documents/EBOOK" --tts-mode multilingual --language-id it
